@@ -2,7 +2,7 @@ import { env } from "@/env";
 
 export const getAurinkoAuthUrl = (serviceType: 'Google' | 'Office365') => {
   const params = new URLSearchParams({
-    clientId: env.AURINKO_CLIENT_ID as string,
+    clientId: env.AURINKO_CLIENT_ID,
     serviceType,
     scopes: 'Mail.Read Mail.ReadWrite Mail.Send Mail.Drafts Mail.All Contact.Read Contact.ReadWrite Contact.All Calendar.Read Calendar.ReadWrite Calendar.All email profile',
     responseType: 'code',

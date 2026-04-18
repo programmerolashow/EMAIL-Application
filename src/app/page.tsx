@@ -1,82 +1,134 @@
 import Link from "next/link";
-
-import { api } from "@/trpc/server";
-import { ArrowRight, Mail } from "lucide-react";
+import { 
+  SignInButton, 
+  SignUpButton, 
+  Show,
+  UserButton 
+} from "@clerk/nextjs";
+import { ArrowRight, Mail, Shield, Zap, Search, Layout } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { LinkAccountButton } from "@/components/LinkAccountButton";
 
-export default async function Home() {
-  const hello = await api.post.hello({ text: "from tRPC" });
-
-  void api.post.getLatest.prefetch();
-
+export default function Home() {
   return (
-    <div className="min-h-screen bg-linear-to-br from-blue-600 to-indigo-700 text-white">
+    <div className="min-h-screen bg-white text-slate-900">
       {/* Navigation */}
-      <nav className="flex items-center justify-between p-6">
-        <div className="flex items-center gap-2 text-2xl font-bold">
-          <Mail className="h-8 w-8" />
-          E-MassCom
-        </div>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/auth/signin"
-            className="px-4 py-2 rounded-lg hover:bg-blue-500 transition-colors"
-          >
-            Sign In
-          </Link>
-          <Link
-            href="/auth/signup"
-            className="px-4 py-2 bg-white text-blue-600 rounded-lg font-medium hover:bg-gray-100 transition-colors"
-          >
-            Sign Up
-          </Link>
+      <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-2 text-xl font-bold text-blue-600">
+              <Mail className="h-6 w-6" />
+              <span>E-MassCom</span>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <Show when="signed-out">
+                <SignInButton mode="modal">
+                  <Button variant="ghost" className="text-slate-600 hover:text-blue-600">
+                    Sign In
+                  </Button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                    Get Started
+                  </Button>
+                </SignUpButton>
+              </Show>
+              <Show when="signed-in">
+                <Link href="/dashboard" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors mr-2">
+                  Dashboard
+                </Link>
+                <UserButton />
+              </Show>
+            </div>
+          </div>
         </div>
       </nav>
 
       {/* Hero Section */}
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-100px)] px-4 text-center">
-        <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
-          Your AI-Powered Email Client
-        </h1>
-        <p className="text-xl md:text-2xl text-blue-100 mb-8 max-w-2xl">
-          Manage, organize, and respond to emails with the power of AI. Smart compose, full-text search, and more.
-        </p>
+      <main className="pt-32 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <div className="text-center space-y-8">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-sm font-medium border border-blue-100">
+            <Zap className="h-4 w-4" />
+            <span>Introducing a smarter way to email</span>
+          </div>
+          
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-slate-900">
+            Welcome to the future of <br className="hidden md:block" />
+            <span className="text-blue-600">intelligent communication.</span>
+          </h1>
+          
+          <p className="text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
+            Manage, organize, and respond to emails with unparalleled efficiency. 
+            E-MassCom streamlines your workflow so you can focus on what matters most.
+          </p>
 
-        <div className="flex flex-col sm:flex-row gap-4 mb-12">
-          <Link
-            href="/auth/signup"
-            className="px-8 py-4 bg-white text-blue-600 rounded-lg font-bold text-lg hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"
-          >
-            Get Started <ArrowRight className="h-5 w-5" />
-          </Link>
-          <LinkAccountButton />
-          {/* <Link
-            href="/auth/signin"
-            className="px-8 py-4 border-2 border-white rounded-lg font-bold text-lg hover:bg-white hover:text-blue-600 transition-colors"
-          >
-            Sign In
-          </Link> */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+            <Show when="signed-out">
+              <SignUpButton mode="modal">
+                <Button size="lg" className="h-14 px-8 bg-blue-600 hover:bg-blue-700 text-white text-lg font-bold shadow-lg shadow-blue-200 group">
+                  Start for Free
+                  <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
+                </Button>
+              </SignUpButton>
+            </Show>
+            <Show when="signed-in">
+              <div className="flex flex-col items-center gap-4">
+                <p className="text-sm font-medium text-slate-500 italic">You're signed in! Ready to connect your inbox?</p>
+                <LinkAccountButton />
+              </div>
+            </Show>
+          </div>
         </div>
 
-        {/* Features */}
-        <div className="grid md:grid-cols-3 gap-8 max-w-4xl mt-16">
-          <div className="bg-blue-500 bg-opacity-50 backdrop-blur p-6 rounded-lg">
-            <div className="text-3xl mb-2">✨</div>
-            <h3 className="text-xl font-bold mb-2">AI Smart Compose</h3>
-            <p className="text-blue-100">Write emails faster with AI-powered suggestions</p>
+        {/* Features Grid */}
+        <div className="mt-32 grid md:grid-cols-3 gap-12">
+          <div className="group p-8 rounded-2xl bg-slate-50 hover:bg-white border border-transparent hover:border-blue-100 transition-all duration-300">
+            <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform">
+              <Layout className="h-6 w-6" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-3">Unified Inbox</h3>
+            <p className="text-slate-600 leading-relaxed">
+              Consolidate all your email accounts into one seamless, well-organized workplace.
+            </p>
           </div>
-          <div className="bg-blue-500 bg-opacity-50 backdrop-blur p-6 rounded-lg">
-            <div className="text-3xl mb-2">🔍</div>
-            <h3 className="text-xl font-bold mb-2">Full-Text Search</h3>
-            <p className="text-blue-100">Find any email instantly with powerful search</p>
+
+          <div className="group p-8 rounded-2xl bg-slate-50 hover:bg-white border border-transparent hover:border-blue-100 transition-all duration-300">
+            <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform">
+              <Search className="h-6 w-6" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-3">Neural Search</h3>
+            <p className="text-slate-600 leading-relaxed">
+              Find exactly what you&apos;re looking for with our powerful, context-aware indexing engine.
+            </p>
           </div>
-          <div className="bg-blue-500 bg-opacity-50 backdrop-blur p-6 rounded-lg">
-            <div className="text-3xl mb-2">🤖</div>
-            <h3 className="text-xl font-bold mb-2">AI Chatbot</h3>
-            <p className="text-blue-100">Get help organizing and composing emails</p>
+
+          <div className="group p-8 rounded-2xl bg-slate-50 hover:bg-white border border-transparent hover:border-blue-100 transition-all duration-300">
+            <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform">
+              <Shield className="h-6 w-6" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-3">Priority Security</h3>
+            <p className="text-slate-600 leading-relaxed">
+              Enterprise-grade encryption keeps your data and communications private and protected.
+            </p>
           </div>
         </div>
-      </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-32 border-t border-slate-100 py-12 px-4 shadow-sm bg-slate-50/50">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-2 text-slate-900 font-bold opacity-50">
+            <Mail className="h-5 w-5 text-blue-600" />
+            <span>E-MassCom &copy; 2026</span>
+          </div>
+          <div className="flex gap-8 text-sm text-slate-500 font-medium">
+            <Link href="#" className="hover:text-blue-600 transition-colors">Privacy Policy</Link>
+            <Link href="#" className="hover:text-blue-600 transition-colors">Terms of Service</Link>
+            <Link href="#" className="hover:text-blue-600 transition-colors">Contact Support</Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
