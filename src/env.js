@@ -15,6 +15,7 @@ export const env = createEnv({
     AURINKO_CLIENT_ID: z.string(),
     AURINKO_CLIENT_SECRET: z.string(),
     AURINKO_SIGNIN_SECRET: z.string(),
+    DIRECT_URL: z.string().url().optional(),
   },
 
   /**
@@ -37,6 +38,7 @@ export const env = createEnv({
     AURINKO_CLIENT_ID: process.env.AURINKO_CLIENT_ID,
     AURINKO_CLIENT_SECRET: process.env.AURINKO_CLIENT_SECRET,
     AURINKO_SIGNIN_SECRET: process.env.AURINKO_SIGNIN_SECRET,
+    DIRECT_URL: process.env.DIRECT_URL,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**
