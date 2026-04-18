@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { api } from "@/trpc/server";
 import { ArrowRight, Mail } from "lucide-react";
+import { LinkAccountButton } from "@/components/LinkAccountButton";
 
 export default async function Home() {
   const hello = await api.post.hello({ text: "from tRPC" });
@@ -48,6 +49,7 @@ export default async function Home() {
           >
             Get Started <ArrowRight className="h-5 w-5" />
           </Link>
+          <LinkAccountButton />
           {/* <Link
             href="/auth/signin"
             className="px-8 py-4 border-2 border-white rounded-lg font-bold text-lg hover:bg-white hover:text-blue-600 transition-colors"

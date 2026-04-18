@@ -12,6 +12,9 @@ export const env = createEnv({
       .enum(["development", "test", "production"])
       .default("development"),
     CLERK_WEBHOOK_SECRET: z.string(),
+    AURINKO_CLIENT_ID: z.string(),
+    AURINKO_CLIENT_SECRET: z.string(),
+    AURINKO_SIGNIN_SECRET: z.string(),
   },
 
   /**
@@ -31,6 +34,9 @@ export const env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
     CLERK_WEBHOOK_SECRET: process.env.CLERK_WEBHOOK_SECRET,
+    AURINKO_CLIENT_ID: process.env.AURINKO_CLIENT_ID,
+    AURINKO_CLIENT_SECRET: process.env.AURINKO_CLIENT_SECRET,
+    AURINKO_SIGNIN_SECRET: process.env.AURINKO_SIGNIN_SECRET,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**
