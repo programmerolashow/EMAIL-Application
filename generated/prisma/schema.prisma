@@ -1,9 +1,7 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../generated/prisma"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -36,6 +34,5 @@ model Account {
   refreshToken String?
   email        String
   name         String
-
-  user User @relation(fields: [userId], references: [id])
+  user         User    @relation(fields: [userId], references: [id])
 }

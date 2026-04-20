@@ -1,42 +1,38 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-    provider        = "prisma-client-js"
-    output          = "../generated/prisma"
-    previewFeatures = ["driverAdapters"]
+  provider        = "prisma-client-js"
+  output          = "../generated/prisma"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
-    provider  = "postgresql"
+  provider = "postgresql"
 }
 
 model Post {
-    id        Int      @id @default(autoincrement())
-    name      String
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([name])
+  @@index([name])
 }
 
 model User {
-    id        String    @id
-    firstname String
-    lastname  String
-    time      DateTime
-    email     String
-    imageURL  String
-    accounts  Account[]
+  id        String    @id
+  firstname String
+  lastname  String
+  time      DateTime
+  email     String
+  imageURL  String
+  accounts  Account[]
 }
 
 model Account {
-    id           String @id
-    userId       String
-    accessToken  String
-    refreshToken String?
-    email        String
-    name         String
-
-    user User @relation(fields: [userId], references: [id])
+  id           String  @id
+  userId       String
+  accessToken  String
+  refreshToken String?
+  email        String
+  name         String
+  user         User    @relation(fields: [userId], references: [id])
 }

@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   console.log("--------------------------------------------------");
   console.log("🌐 INCOMING WEBHOOK:", req.method, req.url);
   console.log("📡 Remote Address:", req.headers.get("x-forwarded-for") || "unknown");
-  
+
   const WEBHOOK_SECRET = env.CLERK_WEBHOOK_SECRET;
 
   if (!WEBHOOK_SECRET) {
