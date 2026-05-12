@@ -23,12 +23,12 @@ export default function Home() {
             
             <div className="flex items-center gap-4">
               <Show when="signed-out">
-                <SignInButton mode="modal">
+                <SignInButton mode="modal" fallbackRedirectUrl="/dashboard" signUpFallbackRedirectUrl="/dashboard">
                   <Button variant="ghost" className="text-slate-600 hover:text-blue-600">
                     Sign In
                   </Button>
                 </SignInButton>
-                <SignUpButton mode="modal">
+                <SignUpButton mode="modal" fallbackRedirectUrl="/dashboard" signInFallbackRedirectUrl="/dashboard">
                   <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
                     Get Started
                   </Button>
@@ -65,7 +65,7 @@ export default function Home() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
             <Show when="signed-out">
-              <SignUpButton mode="modal">
+              <SignUpButton mode="modal" fallbackRedirectUrl="/dashboard" signInFallbackRedirectUrl="/dashboard">
                 <Button size="lg" className="h-14 px-8 bg-blue-600 hover:bg-blue-700 text-white text-lg font-bold shadow-lg shadow-blue-200 group">
                   Start for Free
                   <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
