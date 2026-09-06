@@ -152,7 +152,7 @@ function ChartTooltipContent({
     }
 
     const [item] = payload
-    const key = `${labelKey ?? item?.dataKey ?? item?.name ?? "value"}`
+    const key = String(labelKey ?? item?.dataKey ?? item?.name ?? "value")
     const itemConfig = getPayloadConfigFromPayload(config, item, key)
     const value =
       !labelKey && typeof label === "string"
@@ -200,9 +200,10 @@ function ChartTooltipContent({
         {payload
           .filter((item) => item.type !== "none")
           .map((item, index) => {
-            const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`
+            const key = String(nameKey ?? item.name ?? item.dataKey ?? "value")
             const itemConfig = getPayloadConfigFromPayload(config, item, key)
-            const indicatorColor = color ?? item.payload?.fill ?? item.color
+            const itemPayload = (typeof item.payload === "object" && item.payload !== null ? item.payload : {}) as Record<string, unknown>
+            const indicatorColor = color ?? (typeof itemPayload.fill === "string" ? itemPayload.fill : undefined) ?? item.color
 
             return (
               <div
@@ -213,7 +214,7 @@ function ChartTooltipContent({
                 )}
               >
                 {formatter && item?.value !== undefined && item.name ? (
-                  formatter(item.value, item.name, item, index, item.payload)
+                  formatter(item.value, item.name, item, index, itemPayload as never)
                 ) : (
                   <>
                     {itemConfig?.icon ? (
@@ -233,8 +234,8 @@ function ChartTooltipContent({
                           )}
                           style={
                             {
-                              "--color-bg": indicatorColor,
-                              "--color-border": indicatorColor,
+                              "--color-bg": String(indicatorColor ?? ""),
+                              "--color-border": String(indicatorColor ?? ""),
                             } as React.CSSProperties
                           }
                         />
@@ -299,7 +300,7 @@ function ChartLegendContent({
       {payload
         .filter((item) => item.type !== "none")
         .map((item, index) => {
-          const key = `${nameKey ?? item.dataKey ?? "value"}`
+          const key = String(nameKey ?? item.dataKey ?? "value")
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
 
           return (

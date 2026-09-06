@@ -74,7 +74,7 @@ export default function Home() {
             </Show>
             <Show when="signed-in">
               <div className="flex flex-col items-center gap-4">
-                <p className="text-sm font-medium text-slate-500 italic">You're signed in! Ready to connect your inbox?</p>
+                <p className="text-sm font-medium text-slate-500 italic">You&apos;re signed in! Ready to connect your inbox?</p>
                 <LinkAccountButton />
               </div>
             </Show>

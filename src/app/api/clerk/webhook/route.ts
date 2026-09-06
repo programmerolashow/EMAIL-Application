@@ -2,12 +2,13 @@ import { db } from "@/server/db";
 import { type NextRequest } from "next/server";
 import { Webhook } from "svix";
 import { env } from "@/env";
+import type { WebhookEvent } from "@clerk/nextjs/server";
 
 export async function POST(req: NextRequest) {
   // 1. CATCH-ALL LOG - This must appear in your terminal if Clerk reaches you
   console.log("--------------------------------------------------");
   console.log("🌐 INCOMING WEBHOOK:", req.method, req.url);
-  console.log("📡 Remote Address:", req.headers.get("x-forwarded-for") || "unknown");
+  console.log("📡 Remote Address:", req.headers.get("x-forwarded-for") ?? "unknown");
 
   const WEBHOOK_SECRET = env.CLERK_WEBHOOK_SECRET;
 
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   console.log("📄 DATA RECEIVED: Body length", body.length);
 
   const wh = new Webhook(WEBHOOK_SECRET);
-  let evt: any;
+  let evt: WebhookEvent;
 
   // Verify signature
   try {
@@ -39,10 +40,10 @@ export async function POST(req: NextRequest) {
       "svix-id": svix_id,
       "svix-timestamp": svix_timestamp,
       "svix-signature": svix_signature,
-    });
+    }) as WebhookEvent;
     console.log("✅ VERIFICATION SUCCESS: Signature is valid");
   } catch (err) {
-    console.error("❌ VERIFICATION FAILURE: Invalid signature or secret");
+    console.error("❌ VERIFICATION FAILURE: Invalid signature or secret", err);
     return new Response("Error occurred during verification", { status: 400 });
   }
 
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
   // Sync user data
   if (eventType === "user.created" || eventType === "user.updated") {
     const { id, email_addresses, first_name, last_name, image_url } = evt.data;
-    const email = email_addresses[0]?.email_address;
+    const email = email_addresses?.[0]?.email_address ?? "";
 
     console.log(`📩 DATABASE ACTION: Syncing user ${email} (ID: ${id})`);
 
@@ -75,6 +76,25 @@ export async function POST(req: NextRequest) {
         },
       });
       console.log("✨ DATABASE SUCCESS: User record synchronized");
+    } catch (dbError) {
+      console.error("❌ DATABASE ERROR:", dbError);
+      return new Response("Database error", { status: 500 });
+    }
+  } else if (eventType === "user.deleted") {
+    const { id } = evt.data;
+    console.log(`🗑️ DATABASE ACTION: Deleting user (ID: ${id})`);
+
+    if (!id) {
+      console.error("❌ CLERK WEBHOOK ERROR: user.deleted payload missing ID");
+      return new Response("Missing user ID", { status: 400 });
+    }
+
+    try {
+      // deleteMany is idempotent - if user is already deleted or never existed, it succeeds quietly
+      await db.user.deleteMany({
+        where: { id: id },
+      });
+      console.log(`✨ DATABASE SUCCESS: User record ${id} and associated data deleted`);
     } catch (dbError) {
       console.error("❌ DATABASE ERROR:", dbError);
       return new Response("Database error", { status: 500 });
