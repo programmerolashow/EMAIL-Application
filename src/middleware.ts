@@ -34,24 +34,36 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // Refresh Supabase session & detect authenticated user
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
 
-  const isPublicRoute =
-    pathname === "/" ||
+  const isAuthPage =
     pathname.startsWith("/SignIn") ||
     pathname.startsWith("/sign-in") ||
     pathname.startsWith("/SignUp") ||
-    pathname.startsWith("/sign-up") ||
+    pathname.startsWith("/sign-up");
+
+  const isPublicRoute =
+    pathname === "/" ||
+    isAuthPage ||
     pathname.startsWith("/_next") ||
     pathname.includes(".");
 
+  // 1. Prevent authenticated users from accessing authentication pages (redirects to /dashboard)
+  if (user && isAuthPage) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  // 2. Protect authenticated routes (e.g., /dashboard), redirecting unauthenticated users to /sign-in
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/SignIn";
+    url.pathname = "/sign-in";
     return NextResponse.redirect(url);
   }
 

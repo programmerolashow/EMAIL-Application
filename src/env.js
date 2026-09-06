@@ -3,56 +3,87 @@ import { z } from "zod";
 
 export const env = createEnv({
   /**
-   * Specify your server-side environment variables schema here. This way you can ensure the app
-   * isn't built with invalid env vars.
+   * Server-side environment variables schema.
+   * NEVER exposed to client-side code.
    */
   server: {
-    DATABASE_URL: z.string().url(),
-    NODE_ENV: z
-      .enum(["development", "test", "production"])
-      .default("development"),
-    SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-    AURINKO_CLIENT_ID: z.string(),
-    AURINKO_CLIENT_SECRET: z.string(),
-    AURINKO_SIGNIN_SECRET: z.string(),
+    DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection URL"),
     DIRECT_URL: z.string().url().optional(),
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+
+    // Aurinko Credentials
+    AURINKO_CLIENT_ID: z.string().min(1, "AURINKO_CLIENT_ID is required"),
+    AURINKO_CLIENT_SECRET: z.string().min(1, "AURINKO_CLIENT_SECRET is required"),
+    AURINKO_SIGNIN_SECRET: z.string().min(1, "AURINKO_SIGNIN_SECRET is required"),
+
+    // OpenAI Credentials & Configuration
     OPENAI_API_KEY: z.string().optional(),
+    OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+
+    // Svix Credentials & Webhook Secrets
+    SVIX_TOKEN: z.string().optional(),
+    SVIX_APP_ID: z.string().optional(),
+    SVIX_WEBHOOK_SECRET: z.string().optional(),
+
+    SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   },
 
   /**
-   * Specify your client-side environment variables schema here. This way you can ensure the app
-   * isn't built with invalid env vars. To expose them to the client, prefix them with
-   * `NEXT_PUBLIC_`.
+   * Client-side environment variables schema.
+   * MUST be prefixed with `NEXT_PUBLIC_`.
    */
   client: {
-    NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string(),
+    NEXT_PUBLIC_SUPABASE_URL: z.string().url("NEXT_PUBLIC_SUPABASE_URL must be a valid URL"),
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required"),
   },
 
   /**
-   * You can't destruct `process.env` as a regular object in the Next.js edge runtimes (e.g.
-   * middlewares) or client-side so we need to destruct manually.
+   * Destructure process.env for client/edge runtimes.
    */
   runtimeEnv: {
     DATABASE_URL: process.env.DATABASE_URL,
+    DIRECT_URL: process.env.DIRECT_URL,
     NODE_ENV: process.env.NODE_ENV,
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+
     AURINKO_CLIENT_ID: process.env.AURINKO_CLIENT_ID,
     AURINKO_CLIENT_SECRET: process.env.AURINKO_CLIENT_SECRET,
     AURINKO_SIGNIN_SECRET: process.env.AURINKO_SIGNIN_SECRET,
-    DIRECT_URL: process.env.DIRECT_URL,
+
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+
+    SVIX_TOKEN: process.env.SVIX_TOKEN,
+    SVIX_APP_ID: process.env.SVIX_APP_ID,
+    SVIX_WEBHOOK_SECRET: process.env.SVIX_WEBHOOK_SECRET,
+
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   },
+
   /**
-   * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
-   * useful for Docker builds.
+   * Fail fast with a clear configuration error when required variables are invalid or missing.
    */
+  onValidationError: (errors) => {
+    console.error(
+      "❌ Invalid environment variables configuration:\n",
+      JSON.stringify(errors, null, 2)
+    );
+    throw new Error(
+      "Invalid environment variables configuration. Please verify your .env file or server environment settings."
+    );
+  },
+
+  /**
+   * Security guard: Prevents accidental client-side exposure of secret server environment variables.
+   */
+  onInvalidAccess: (variable) => {
+    throw new Error(
+      `❌ Security Violation: Attempted to access server-side environment variable "${variable}" on the client-side!`
+    );
+  },
+
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
-  /**
-   * Makes it so that empty strings are treated as undefined. `SOME_VAR: z.string()` and
-   * `SOME_VAR=''` will throw an error.
-   */
   emptyStringAsUndefined: true,
 });
