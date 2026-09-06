@@ -1,14 +1,16 @@
-import { exchangeCodeForAccessToken, getAccount } from "@/lib/aurinko"; // Import from aurinko helpers
+import { exchangeCodeForAccessToken, getAccount } from "@/lib/aurinko";
 import { db } from "@/server/db";
-import { auth } from "@clerk/nextjs/server";
+import { createClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
 
 export const GET = async (req: NextRequest) => {
-    const { userId } = await auth();
-    if (!userId) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const userId = user.id;
     const searchParams = req.nextUrl.searchParams;
     const status = searchParams.get("status");
 

@@ -1,15 +1,15 @@
 import Link from "next/link";
-import { 
-  SignInButton, 
-  SignUpButton, 
-  Show,
-  UserButton 
-} from "@clerk/nextjs";
-import { ArrowRight, Mail, Shield, Zap, Search, Layout } from "lucide-react";
+import { Mail, Shield, Zap, Search, Layout, ArrowRight } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { LinkAccountButton } from "@/components/LinkAccountButton";
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <div className="min-h-screen bg-white text-slate-900">
       {/* Navigation */}
@@ -20,26 +20,36 @@ export default function Home() {
               <Mail className="h-6 w-6" />
               <span>E-MassCom</span>
             </div>
-            
+
             <div className="flex items-center gap-4">
-              <Show when="signed-out">
-                <SignInButton mode="modal" fallbackRedirectUrl="/dashboard" signUpFallbackRedirectUrl="/dashboard">
-                  <Button variant="ghost" className="text-slate-600 hover:text-blue-600">
-                    Sign In
-                  </Button>
-                </SignInButton>
-                <SignUpButton mode="modal" fallbackRedirectUrl="/dashboard" signInFallbackRedirectUrl="/dashboard">
-                  <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
-                    Get Started
-                  </Button>
-                </SignUpButton>
-              </Show>
-              <Show when="signed-in">
-                <Link href="/dashboard" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors mr-2">
-                  Dashboard
-                </Link>
-                <UserButton />
-              </Show>
+              {!user ? (
+                <>
+                  <Link href="/SignIn">
+                    <Button variant="ghost" className="text-slate-600 hover:text-blue-600">
+                      Sign In
+                    </Button>
+                  </Link>
+                  <Link href="/SignUp">
+                    <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                      Get Started
+                    </Button>
+                  </Link>
+                </>
+              ) : (
+                <div className="flex items-center gap-4">
+                  <Link
+                    href="/dashboard"
+                    className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors"
+                  >
+                    Dashboard
+                  </Link>
+                  <form action="/api/auth/signout" method="post">
+                    <Button type="submit" variant="outline" size="sm">
+                      Sign Out
+                    </Button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -52,32 +62,33 @@ export default function Home() {
             <Zap className="h-4 w-4" />
             <span>Introducing a smarter way to email</span>
           </div>
-          
+
           <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-slate-900">
             Welcome to the future of <br className="hidden md:block" />
             <span className="text-blue-600">intelligent communication.</span>
           </h1>
-          
+
           <p className="text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
-            Manage, organize, and respond to emails with unparalleled efficiency. 
+            Manage, organize, and respond to emails with unparalleled efficiency.
             E-MassCom streamlines your workflow so you can focus on what matters most.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <Show when="signed-out">
-              <SignUpButton mode="modal" fallbackRedirectUrl="/dashboard" signInFallbackRedirectUrl="/dashboard">
+            {!user ? (
+              <Link href="/SignUp">
                 <Button size="lg" className="h-14 px-8 bg-blue-600 hover:bg-blue-700 text-white text-lg font-bold shadow-lg shadow-blue-200 group">
                   Start for Free
                   <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
                 </Button>
-              </SignUpButton>
-            </Show>
-            <Show when="signed-in">
+              </Link>
+            ) : (
               <div className="flex flex-col items-center gap-4">
-                <p className="text-sm font-medium text-slate-500 italic">You&apos;re signed in! Ready to connect your inbox?</p>
+                <p className="text-sm font-medium text-slate-500 italic">
+                  You&apos;re signed in as {user.email}! Ready to connect your inbox?
+                </p>
                 <LinkAccountButton />
               </div>
-            </Show>
+            )}
           </div>
         </div>
 

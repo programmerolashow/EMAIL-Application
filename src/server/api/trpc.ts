@@ -9,7 +9,8 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
-import { auth } from "@clerk/nextjs/server";
+import { createClient } from "@/lib/supabase/server";
+import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
 
 import { db } from "@/server/db";
 
@@ -26,10 +27,21 @@ import { db } from "@/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
-  const authSession = await auth();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    void syncSupabaseUserToDatabase(user).catch(() => null);
+  }
+
   return {
     db,
-    auth: authSession,
+    auth: {
+      userId: user?.id ?? null,
+      user,
+    },
     ...opts,
   };
 };
@@ -111,7 +123,7 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
 /**
  * Protected (authenticated) procedure
  *
- * Enforces that the user is logged in via Clerk before running the procedure.
+ * Enforces that the user is logged in via Supabase Auth before running the procedure.
  */
 export const protectedProcedure = t.procedure
   .use(timingMiddleware)
@@ -125,4 +137,3 @@ export const protectedProcedure = t.procedure
       },
     });
   });
-
