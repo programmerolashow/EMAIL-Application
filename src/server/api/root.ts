@@ -1,4 +1,5 @@
 import { accountRouter } from "@/server/api/routers/account";
+import { aiRouter } from "@/server/api/routers/ai";
 import { mailRouter } from "@/server/api/routers/mail";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
@@ -9,6 +10,7 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  */
 export const appRouter = createTRPCRouter({
   account: accountRouter,
+  ai: aiRouter,
   mail: mailRouter,
 });
 
