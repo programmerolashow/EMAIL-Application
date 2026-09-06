@@ -3,6 +3,18 @@ import OpenAI from "openai";
 import { env } from "@/env";
 import { EmailService } from "@/server/services/email-service";
 import { AIContextBuilder } from "./context-builder";
+import { EmailSummarizer } from "./modules/email-summarizer";
+import { ThreadIntelligenceService } from "./modules/thread-intelligence";
+import { ReplyGenerator } from "./modules/reply-generator";
+import { DraftRewriter } from "./modules/draft-rewriter";
+import { ActionItemExtractor } from "./modules/action-item-extractor";
+import type {
+  EmailSummaryResult,
+  ThreadIntelligenceResult,
+  ReplyTone,
+  RewriteOption,
+  ExtractedActionItem,
+} from "./modules/types";
 
 export interface AISummaryResponse {
   threadId: string;
@@ -150,4 +162,65 @@ export class AIService {
       body,
     };
   }
+
+  /**
+   * Subtask 7.1: Single email summarization.
+   */
+  static async summarizeEmail(
+    userId: string,
+    messageId: string,
+    accountId?: string
+  ): Promise<EmailSummaryResult> {
+    return EmailSummarizer.summarizeEmail(userId, messageId, accountId);
+  }
+
+  /**
+   * Subtask 7.2: Deep thread intelligence and analysis.
+   */
+  static async getThreadIntelligence(
+    userId: string,
+    threadId: string,
+    accountId?: string
+  ): Promise<ThreadIntelligenceResult> {
+    return ThreadIntelligenceService.getThreadIntelligence(userId, threadId, accountId);
+  }
+
+  /**
+   * Subtask 7.3: Tone-guided reply generation.
+   * Note: The generated draft is returned to the caller for editing and review.
+   * Never auto-sent without explicit user action.
+   */
+  static async generateReply(
+    userId: string,
+    messageId: string,
+    tone: ReplyTone,
+    prompt?: string,
+    accountId?: string
+  ): Promise<AIDraftResponse> {
+    return ReplyGenerator.generateReply(userId, messageId, tone, prompt, accountId);
+  }
+
+  /**
+   * Subtask 7.4: Draft rewriter and style transformer.
+   */
+  static async rewriteDraft(
+    draftText: string,
+    option: RewriteOption,
+    customPrompt?: string
+  ): Promise<string> {
+    return DraftRewriter.rewriteDraft(draftText, option, customPrompt);
+  }
+
+  /**
+   * Subtask 7.5: Action-item extraction from an email or thread.
+   */
+  static async extractActionItems(
+    userId: string,
+    emailOrThreadId: string,
+    isThread = false,
+    accountId?: string
+  ): Promise<ExtractedActionItem[]> {
+    return ActionItemExtractor.extractActionItems(userId, emailOrThreadId, isThread, accountId);
+  }
 }
+
