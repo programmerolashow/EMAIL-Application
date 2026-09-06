@@ -2,12 +2,14 @@ import "server-only";
 import { env } from "@/env";
 
 export const getAurinkoAuthUrl = (serviceType: 'Google' | 'Office365') => {
+  const baseUrl = env.NEXT_PUBLIC_APP_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
   const params = new URLSearchParams({
     clientId: env.AURINKO_CLIENT_ID,
     serviceType,
     scopes: 'Mail.Read Mail.ReadWrite Mail.Send Mail.Drafts Mail.All Contact.Read Contact.ReadWrite Contact.All Calendar.Read Calendar.ReadWrite Calendar.All email profile',
     responseType: 'code',
-    returnUrl: `${process.env.NEXT_PUBLIC_URL ?? 'https://email-application-alpha.vercel.app'}/api/aurinko/callback`,
+    returnUrl: `${baseUrl}/api/aurinko/callback`,
   });
 
   return `https://api.aurinko.io/v1/auth/prepare?${params.toString()}`;
