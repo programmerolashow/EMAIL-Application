@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/prefer-nullish-coalescing */
 "use client";
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Mail, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Mail, ArrowRight, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
@@ -13,6 +14,9 @@ export default function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isVerified = searchParams.get("verified") === "1";
+  const verificationError = searchParams.get("error");
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,10 +59,20 @@ export default function SignInPage() {
           </p>
         </div>
 
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-700 border border-red-100">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
+        {(isVerified || verificationError || error) && (
+          <div
+            className={`flex items-center gap-2 rounded-lg p-4 text-sm border ${
+              isVerified
+                ? "bg-green-50 text-green-700 border-green-100"
+                : "bg-red-50 text-red-700 border-red-100"
+            }`}
+          >
+            {isVerified ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 shrink-0" />
+            )}
+            <span>{error ?? verificationError ?? "Email verified successfully. Please sign in to continue."}</span>
           </div>
         )}
 
@@ -116,7 +130,7 @@ export default function SignInPage() {
         <div className="text-center text-sm text-slate-500 pt-4 border-t border-slate-100">
           Don&apos;t have an account?{" "}
           <Link
-            href="/SignUp"
+            href="/sign-up"
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors"
           >
             Create an account

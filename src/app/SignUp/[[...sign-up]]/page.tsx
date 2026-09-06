@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 "use client";
 
 import React, { useState } from "react";
@@ -35,7 +36,7 @@ export default function SignUpPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${baseUrl}/auth/callback`,
+          emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent("/sign-in")}`,
           data: {
             full_name: fullName,
             first_name: firstName,
@@ -150,7 +151,7 @@ export default function SignUpPage() {
         <div className="text-center text-sm text-slate-500 pt-4 border-t border-slate-100">
           Already have an account?{" "}
           <Link
-            href="/SignIn"
+            href="/sign-in"
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors"
           >
             Sign in instead
