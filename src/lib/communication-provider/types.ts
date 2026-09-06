@@ -1,5 +1,14 @@
 import "server-only";
 
+export const DEFAULT_PAGE_SIZE = 15;
+export const MAX_PAGE_SIZE = 50;
+
+export interface CursorPaginatedResponse<T> {
+  items: T[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
 export interface EmailAddress {
   name?: string;
   address: string;

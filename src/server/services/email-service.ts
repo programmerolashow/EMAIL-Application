@@ -1,23 +1,17 @@
 import "server-only";
 import { db } from "@/server/db";
 import { getCommunicationProvider } from "@/lib/communication-provider";
-import type { ListParams, Draft } from "@/lib/communication-provider/types";
+import type {
+  ListParams,
+  Draft,
+  CursorPaginatedResponse,
+} from "@/lib/communication-provider/types";
 import {
   normalizeMessage,
   normalizeThread,
   type NormalizedMessage,
   type EmailThread,
 } from "@/lib/email-normalizer";
-
-export interface InboxResponse {
-  messages: NormalizedMessage[];
-  nextPageToken?: string;
-}
-
-export interface SearchResponse {
-  messages: NormalizedMessage[];
-  nextPageToken?: string;
-}
 
 export interface ActionSuccessResponse {
   success: boolean;
@@ -44,15 +38,20 @@ export class EmailService {
   }
 
   /**
-   * Fetches inbox emails for the given user, returning normalized messages.
+   * Fetches inbox emails for the given user, returning a cursor-paginated response.
    */
-  static async getInbox(userId: string, accountId?: string, params?: ListParams): Promise<InboxResponse> {
+  static async getInbox(
+    userId: string,
+    accountId?: string,
+    params?: ListParams
+  ): Promise<CursorPaginatedResponse<NormalizedMessage>> {
     const { provider } = await this.getAccountAndProvider(userId, accountId);
     const result = await provider.listMessages(params);
 
     return {
-      messages: result.messages.map(normalizeMessage),
-      nextPageToken: result.nextPageToken,
+      items: result.messages.map(normalizeMessage),
+      nextCursor: result.nextPageToken,
+      hasMore: Boolean(result.nextPageToken),
     };
   }
 
@@ -75,15 +74,21 @@ export class EmailService {
   }
 
   /**
-   * Searches emails by query string, returning normalized search results.
+   * Searches emails by query string, returning a cursor-paginated response.
    */
-  static async searchEmails(userId: string, query: string, accountId?: string, params?: ListParams): Promise<SearchResponse> {
+  static async searchEmails(
+    userId: string,
+    query: string,
+    accountId?: string,
+    params?: ListParams
+  ): Promise<CursorPaginatedResponse<NormalizedMessage>> {
     const { provider } = await this.getAccountAndProvider(userId, accountId);
     const result = await provider.searchMessages(query, params);
 
     return {
-      messages: result.messages.map(normalizeMessage),
-      nextPageToken: result.nextPageToken,
+      items: result.messages.map(normalizeMessage),
+      nextCursor: result.nextPageToken,
+      hasMore: Boolean(result.nextPageToken),
     };
   }
 

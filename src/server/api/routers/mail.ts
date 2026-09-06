@@ -16,18 +16,24 @@ const draftSchema = z.object({
   body: z.string(),
 });
 
-const listParamsSchema = z.object({
+const paginationParamsSchema = z.object({
   accountId: z.string().optional(),
-  pageToken: z.string().optional(),
-  limit: z.number().min(1).max(100).optional(),
+  cursor: z.string().optional(),
+  limit: z.number().min(1).max(50).default(15),
   folderId: z.string().optional(),
 });
 
 export const mailRouter = createTRPCRouter({
   getInbox: protectedProcedure
-    .input(listParamsSchema.optional())
+    .input(paginationParamsSchema.optional())
     .query(async ({ ctx, input }) => {
-      return EmailService.getInbox(ctx.auth.userId, input?.accountId, input);
+      const pageToken = input?.cursor;
+      const limit = input?.limit ?? 15;
+      return EmailService.getInbox(ctx.auth.userId, input?.accountId, {
+        pageToken,
+        limit,
+        folderId: input?.folderId,
+      });
     }),
 
   getMessage: protectedProcedure
@@ -44,12 +50,17 @@ export const mailRouter = createTRPCRouter({
 
   searchEmails: protectedProcedure
     .input(
-      listParamsSchema.extend({
+      paginationParamsSchema.extend({
         query: z.string().min(1),
       })
     )
     .query(async ({ ctx, input }) => {
-      return EmailService.searchEmails(ctx.auth.userId, input.query, input.accountId, input);
+      const pageToken = input?.cursor;
+      const limit = input?.limit ?? 15;
+      return EmailService.searchEmails(ctx.auth.userId, input.query, input.accountId, {
+        pageToken,
+        limit,
+      });
     }),
 
   sendEmail: protectedProcedure
