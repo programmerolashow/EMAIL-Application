@@ -50,6 +50,8 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute =
     pathname === "/" ||
     isAuthPage ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/api/auth") ||
     pathname.startsWith("/_next") ||
     pathname.includes(".");
 

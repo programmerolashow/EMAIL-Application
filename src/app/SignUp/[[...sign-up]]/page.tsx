@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Mail, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { env } from "@/env";
 
 export default function SignUpPage() {
   const [fullName, setFullName] = useState("");
@@ -26,10 +27,15 @@ export default function SignUpPage() {
       const firstName = nameParts[0] ?? "User";
       const lastName = nameParts.slice(1).join(" ");
 
+      const baseUrl =
+        env.NEXT_PUBLIC_APP_URL ??
+        (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: `${baseUrl}/auth/callback`,
           data: {
             full_name: fullName,
             first_name: firstName,
@@ -48,7 +54,7 @@ export default function SignUpPage() {
         router.push("/dashboard");
         router.refresh();
       } else {
-        setError("Account created! Please check your email to confirm your subscription or sign in.");
+        setError("Account created! We've sent a verification email to your address. Please check your inbox and click the link to confirm.");
         setLoading(false);
       }
     } catch (err) {
