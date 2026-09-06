@@ -25,11 +25,16 @@ export const GET = async (req: NextRequest) => {
         const token = await exchangeCodeForAccessToken(code);
         const account = await getAccount(token.accessToken);
 
+        const expiresAt = token.expiresIn ? new Date(Date.now() + token.expiresIn * 1000) : undefined;
+
         await db.account.upsert({
             where: { id: account.id },
             update: {
                 accessToken: token.accessToken,
                 refreshToken: token.refreshToken,
+                email: account.email,
+                name: account.name,
+                expiresAt,
             },
             create: {
                 id: account.id,
@@ -38,6 +43,8 @@ export const GET = async (req: NextRequest) => {
                 refreshToken: token.refreshToken,
                 email: account.email,
                 name: account.name,
+                providerAccountId: account.id,
+                expiresAt,
             },
         });
 
