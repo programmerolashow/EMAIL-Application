@@ -33,7 +33,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
   } = await supabase.auth.getUser();
 
   if (user) {
-    void syncSupabaseUserToDatabase(user).catch(() => null);
+    await syncSupabaseUserToDatabase(user).catch(() => null);
   }
 
   return {

@@ -72,7 +72,9 @@ export default function DashboardPage() {
     participants: [msg.from, ...msg.to],
     messages: [msg],
     latestMessage: msg,
+    messageCount: 1,
     unreadCount: msg.isRead ? 0 : 1,
+    lastActivityAt: msg.receivedAt,
     lastActivity: msg.receivedAt,
     metadata: {
       messageCount: 1,

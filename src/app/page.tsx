@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Mail, Shield, Zap, Search, Layout, ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
 import { Button } from "@/components/ui/button";
 import { LinkAccountButton } from "@/components/LinkAccountButton";
 
@@ -9,6 +10,10 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (user) {
+    await syncSupabaseUserToDatabase(user).catch(() => null);
+  }
 
   return (
     <div className="min-h-screen bg-white text-slate-900">

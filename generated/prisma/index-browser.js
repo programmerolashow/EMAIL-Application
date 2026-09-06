@@ -143,17 +143,122 @@ exports.Prisma.AccountScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
+exports.Prisma.ThreadScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  accountId: 'accountId',
+  subject: 'subject',
+  lastMessageDate: 'lastMessageDate',
+  snippet: 'snippet',
+  unread: 'unread',
+  folder: 'folder',
+  messageCount: 'messageCount',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.EmailScalarFieldEnum = {
+  id: 'id',
+  threadId: 'threadId',
+  userId: 'userId',
+  accountId: 'accountId',
+  subject: 'subject',
+  from: 'from',
+  to: 'to',
+  cc: 'cc',
+  bcc: 'bcc',
+  replyTo: 'replyTo',
+  sentAt: 'sentAt',
+  receivedAt: 'receivedAt',
+  body: 'body',
+  bodySnippet: 'bodySnippet',
+  sysClassifications: 'sysClassifications',
+  keywords: 'keywords',
+  sysLabels: 'sysLabels',
+  folder: 'folder',
+  isRead: 'isRead',
+  hasAttachments: 'hasAttachments',
+  internetHeaders: 'internetHeaders',
+  internetMessageId: 'internetMessageId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.EmailAddressScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  address: 'address',
+  raw: 'raw',
+  userId: 'userId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.AttachmentScalarFieldEnum = {
+  id: 'id',
+  emailId: 'emailId',
+  filename: 'filename',
+  mimeType: 'mimeType',
+  size: 'size',
+  contentId: 'contentId',
+  contentLocation: 'contentLocation',
+  isInline: 'isInline',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.DraftScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  accountId: 'accountId',
+  threadId: 'threadId',
+  to: 'to',
+  cc: 'cc',
+  bcc: 'bcc',
+  subject: 'subject',
+  body: 'body',
+  aiGenerated: 'aiGenerated',
+  tone: 'tone',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
 exports.Prisma.WebhookEventScalarFieldEnum = {
   id: 'id',
   provider: 'provider',
   eventId: 'eventId',
   eventType: 'eventType',
-  createdAt: 'createdAt'
+  accountId: 'accountId',
+  payload: 'payload',
+  status: 'status',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.AIAnalysisScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  threadId: 'threadId',
+  emailId: 'emailId',
+  type: 'type',
+  summary: 'summary',
+  metadata: 'metadata',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
 };
 
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.JsonNullValueInput = {
+  JsonNull: Prisma.JsonNull
+};
+
+exports.Prisma.NullableJsonNullValueInput = {
+  DbNull: Prisma.DbNull,
+  JsonNull: Prisma.JsonNull
 };
 
 exports.Prisma.QueryMode = {
@@ -166,11 +271,23 @@ exports.Prisma.NullsOrder = {
   last: 'last'
 };
 
+exports.Prisma.JsonNullValueFilter = {
+  DbNull: Prisma.DbNull,
+  JsonNull: Prisma.JsonNull,
+  AnyNull: Prisma.AnyNull
+};
+
 
 exports.Prisma.ModelName = {
   User: 'User',
   Account: 'Account',
-  WebhookEvent: 'WebhookEvent'
+  Thread: 'Thread',
+  Email: 'Email',
+  EmailAddress: 'EmailAddress',
+  Attachment: 'Attachment',
+  Draft: 'Draft',
+  WebhookEvent: 'WebhookEvent',
+  AIAnalysis: 'AIAnalysis'
 };
 
 /**

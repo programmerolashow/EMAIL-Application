@@ -81,18 +81,58 @@ export interface SearchMessagesParams extends ListParams {
   query: string;
 }
 
+/**
+ * Strict CommunicationProvider Interface Abstraction
+ * 
+ * Flow Architecture:
+ * Application (React UI / Server Services / tRPC Routers)
+ *          ↓
+ * CommunicationProvider (Abstract Contract)
+ *          ↓
+ * AurinkoCommunicationProvider (Provider Implementation)
+ *          ↓
+ * Aurinko API (Gateway to Gmail / Outlook / Office365)
+ * 
+ * Never allow React components or Application code to bypass this interface
+ * to call Gmail API, Outlook API, or Aurinko API directly.
+ */
 export interface CommunicationProvider {
+  /** List messages from inbox or folder */
   listMessages(params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }>;
+
+  /** Fetch a single message by ID */
   getMessage(id: string): Promise<Message>;
+
+  /** Fetch a complete message thread by ID */
   getThread(id: string): Promise<Thread>;
+
+  /** Search messages by query string */
   searchMessages(query: string, params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }>;
+
+  /** Send an email message */
   sendMessage(params: Draft): Promise<{ id: string }>;
+
+  /** Create a draft email */
   createDraft(params: Draft): Promise<{ id: string }>;
+
+  /** Update an existing draft email */
   updateDraft(id: string, params: Draft): Promise<{ id: string }>;
+
+  /** Delete a draft email */
   deleteDraft(id: string): Promise<{ success: boolean }>;
+
+  /** Mark a message as read or unread */
   markRead(id: string, isRead: boolean): Promise<{ success: boolean }>;
+
+  /** Archive a message */
   archive(id: string): Promise<{ success: boolean }>;
+
+  /** List user contacts */
   listContacts(params?: ListParams): Promise<{ contacts: Contact[]; nextPageToken?: string }>;
+
+  /** Get individual contact by ID */
   getContact(id: string): Promise<Contact>;
+
+  /** List user calendar events */
   listCalendarEvents(params?: ListParams): Promise<{ events: CalendarEvent[]; nextPageToken?: string }>;
 }
