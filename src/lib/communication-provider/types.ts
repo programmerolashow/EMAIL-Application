@@ -80,6 +80,9 @@ export interface CommunicationProvider {
   sendMessage(params: Draft): Promise<{ id: string }>;
   createDraft(params: Draft): Promise<{ id: string }>;
   updateDraft(id: string, params: Draft): Promise<{ id: string }>;
+  deleteDraft(id: string): Promise<{ success: boolean }>;
+  markRead(id: string, isRead: boolean): Promise<{ success: boolean }>;
+  archive(id: string): Promise<{ success: boolean }>;
   listContacts(params?: ListParams): Promise<{ contacts: Contact[]; nextPageToken?: string }>;
   getContact(id: string): Promise<Contact>;
   listCalendarEvents(params?: ListParams): Promise<{ events: CalendarEvent[]; nextPageToken?: string }>;

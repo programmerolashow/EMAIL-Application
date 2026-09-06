@@ -92,6 +92,29 @@ export class AurinkoCommunicationProvider implements CommunicationProvider {
     });
   }
 
+  async deleteDraft(id: string): Promise<{ success: boolean }> {
+    await this.request<unknown>(`/email/drafts/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    return { success: true };
+  }
+
+  async markRead(id: string, isRead: boolean): Promise<{ success: boolean }> {
+    await this.request<unknown>(`/email/messages/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ unread: !isRead }),
+    });
+    return { success: true };
+  }
+
+  async archive(id: string): Promise<{ success: boolean }> {
+    await this.request<unknown>(`/email/messages/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ keywords: ["$Archive"] }),
+    });
+    return { success: true };
+  }
+
   async listContacts(params?: ListParams): Promise<{ contacts: Contact[]; nextPageToken?: string }> {
     const query = new URLSearchParams();
     if (params?.limit) query.set("limit", String(params.limit));

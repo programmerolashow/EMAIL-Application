@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { MailService } from "@/server/services/mail-service";
+import { EmailService } from "@/server/services/email-service";
 
 const emailAddressSchema = z.object({
   name: z.string().optional(),
@@ -24,35 +24,35 @@ const listParamsSchema = z.object({
 });
 
 export const mailRouter = createTRPCRouter({
-  listMessages: protectedProcedure
+  getInbox: protectedProcedure
     .input(listParamsSchema.optional())
     .query(async ({ ctx, input }) => {
-      return MailService.listMessages(ctx.auth.userId, input?.accountId, input);
+      return EmailService.getInbox(ctx.auth.userId, input?.accountId, input);
     }),
 
   getMessage: protectedProcedure
     .input(z.object({ messageId: z.string(), accountId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
-      return MailService.getMessage(ctx.auth.userId, input.messageId, input.accountId);
+      return EmailService.getMessage(ctx.auth.userId, input.messageId, input.accountId);
     }),
 
   getThread: protectedProcedure
     .input(z.object({ threadId: z.string(), accountId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
-      return MailService.getThread(ctx.auth.userId, input.threadId, input.accountId);
+      return EmailService.getThread(ctx.auth.userId, input.threadId, input.accountId);
     }),
 
-  searchMessages: protectedProcedure
+  searchEmails: protectedProcedure
     .input(
       listParamsSchema.extend({
         query: z.string().min(1),
       })
     )
     .query(async ({ ctx, input }) => {
-      return MailService.searchMessages(ctx.auth.userId, input.query, input.accountId, input);
+      return EmailService.searchEmails(ctx.auth.userId, input.query, input.accountId, input);
     }),
 
-  sendMessage: protectedProcedure
+  sendEmail: protectedProcedure
     .input(
       z.object({
         accountId: z.string().optional(),
@@ -60,7 +60,7 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return MailService.sendMessage(ctx.auth.userId, input.draft, input.accountId);
+      return EmailService.sendEmail(ctx.auth.userId, input.draft, input.accountId);
     }),
 
   createDraft: protectedProcedure
@@ -71,7 +71,7 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return MailService.createDraft(ctx.auth.userId, input.draft, input.accountId);
+      return EmailService.createDraft(ctx.auth.userId, input.draft, input.accountId);
     }),
 
   updateDraft: protectedProcedure
@@ -83,18 +83,30 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return MailService.updateDraft(ctx.auth.userId, input.draftId, input.draft, input.accountId);
+      return EmailService.updateDraft(ctx.auth.userId, input.draftId, input.draft, input.accountId);
     }),
 
-  listContacts: protectedProcedure
-    .input(listParamsSchema.optional())
-    .query(async ({ ctx, input }) => {
-      return MailService.listContacts(ctx.auth.userId, input?.accountId, input);
+  deleteDraft: protectedProcedure
+    .input(z.object({ draftId: z.string(), accountId: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      return EmailService.deleteDraft(ctx.auth.userId, input.draftId, input.accountId);
     }),
 
-  listCalendarEvents: protectedProcedure
-    .input(listParamsSchema.optional())
-    .query(async ({ ctx, input }) => {
-      return MailService.listCalendarEvents(ctx.auth.userId, input?.accountId, input);
+  markRead: protectedProcedure
+    .input(
+      z.object({
+        messageId: z.string(),
+        isRead: z.boolean(),
+        accountId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return EmailService.markRead(ctx.auth.userId, input.messageId, input.isRead, input.accountId);
+    }),
+
+  archive: protectedProcedure
+    .input(z.object({ messageId: z.string(), accountId: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      return EmailService.archive(ctx.auth.userId, input.messageId, input.accountId);
     }),
 });
