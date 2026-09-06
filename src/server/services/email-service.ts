@@ -1,20 +1,21 @@
 import "server-only";
 import { db } from "@/server/db";
 import { getCommunicationProvider } from "@/lib/communication-provider";
-import type {
-  ListParams,
-  Message,
-  Thread,
-  Draft,
-} from "@/lib/communication-provider/types";
+import type { ListParams, Draft } from "@/lib/communication-provider/types";
+import {
+  normalizeMessage,
+  normalizeThread,
+  type NormalizedMessage,
+  type EmailThread,
+} from "@/lib/email-normalizer";
 
 export interface InboxResponse {
-  messages: Message[];
+  messages: NormalizedMessage[];
   nextPageToken?: string;
 }
 
 export interface SearchResponse {
-  messages: Message[];
+  messages: NormalizedMessage[];
   nextPageToken?: string;
 }
 
@@ -25,9 +26,9 @@ export interface ActionSuccessResponse {
 
 export class EmailService {
   /**
-   * Helper to retrieve the user's account and return a CommunicationProvider instance.
+   * Helper to retrieve the user's account and return a CommunicationProvider instance along with account metadata.
    */
-  private static async getProvider(userId: string, accountId?: string) {
+  private static async getAccountAndProvider(userId: string, accountId?: string) {
     const account = accountId
       ? await db.account.findFirst({ where: { id: accountId, userId } })
       : await db.account.findFirst({ where: { userId } });
@@ -36,46 +37,61 @@ export class EmailService {
       throw new Error("No connected email account found for user.");
     }
 
-    return getCommunicationProvider(account.accessToken);
+    return {
+      account,
+      provider: getCommunicationProvider(account.accessToken),
+    };
   }
 
   /**
-   * Fetches inbox emails for the given user.
+   * Fetches inbox emails for the given user, returning normalized messages.
    */
   static async getInbox(userId: string, accountId?: string, params?: ListParams): Promise<InboxResponse> {
-    const provider = await this.getProvider(userId, accountId);
-    return provider.listMessages(params);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
+    const result = await provider.listMessages(params);
+
+    return {
+      messages: result.messages.map(normalizeMessage),
+      nextPageToken: result.nextPageToken,
+    };
   }
 
   /**
-   * Fetches a single message by ID.
+   * Fetches a single message by ID, returning a normalized representation.
    */
-  static async getMessage(userId: string, messageId: string, accountId?: string): Promise<Message> {
-    const provider = await this.getProvider(userId, accountId);
-    return provider.getMessage(messageId);
+  static async getMessage(userId: string, messageId: string, accountId?: string): Promise<NormalizedMessage> {
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
+    const rawMessage = await provider.getMessage(messageId);
+    return normalizeMessage(rawMessage);
   }
 
   /**
-   * Fetches an email thread by ID.
+   * Fetches an email thread by ID, returning a normalized EmailThread entity.
    */
-  static async getThread(userId: string, threadId: string, accountId?: string): Promise<Thread> {
-    const provider = await this.getProvider(userId, accountId);
-    return provider.getThread(threadId);
+  static async getThread(userId: string, threadId: string, accountId?: string): Promise<EmailThread> {
+    const { account, provider } = await this.getAccountAndProvider(userId, accountId);
+    const rawThread = await provider.getThread(threadId);
+    return normalizeThread(rawThread, account.provider ?? "Email");
   }
 
   /**
-   * Searches emails by query string.
+   * Searches emails by query string, returning normalized search results.
    */
   static async searchEmails(userId: string, query: string, accountId?: string, params?: ListParams): Promise<SearchResponse> {
-    const provider = await this.getProvider(userId, accountId);
-    return provider.searchMessages(query, params);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
+    const result = await provider.searchMessages(query, params);
+
+    return {
+      messages: result.messages.map(normalizeMessage),
+      nextPageToken: result.nextPageToken,
+    };
   }
 
   /**
    * Sends an email message.
    */
   static async sendEmail(userId: string, draft: Draft, accountId?: string): Promise<{ id: string }> {
-    const provider = await this.getProvider(userId, accountId);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
     return provider.sendMessage(draft);
   }
 
@@ -83,7 +99,7 @@ export class EmailService {
    * Creates a draft email.
    */
   static async createDraft(userId: string, draft: Draft, accountId?: string): Promise<{ id: string }> {
-    const provider = await this.getProvider(userId, accountId);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
     return provider.createDraft(draft);
   }
 
@@ -91,7 +107,7 @@ export class EmailService {
    * Updates an existing draft.
    */
   static async updateDraft(userId: string, draftId: string, draft: Draft, accountId?: string): Promise<{ id: string }> {
-    const provider = await this.getProvider(userId, accountId);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
     return provider.updateDraft(draftId, draft);
   }
 
@@ -99,7 +115,7 @@ export class EmailService {
    * Deletes a draft email.
    */
   static async deleteDraft(userId: string, draftId: string, accountId?: string): Promise<ActionSuccessResponse> {
-    const provider = await this.getProvider(userId, accountId);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
     return provider.deleteDraft(draftId);
   }
 
@@ -107,7 +123,7 @@ export class EmailService {
    * Marks an email message as read or unread.
    */
   static async markRead(userId: string, messageId: string, isRead: boolean, accountId?: string): Promise<ActionSuccessResponse> {
-    const provider = await this.getProvider(userId, accountId);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
     return provider.markRead(messageId, isRead);
   }
 
@@ -115,7 +131,7 @@ export class EmailService {
    * Archives an email message.
    */
   static async archive(userId: string, messageId: string, accountId?: string): Promise<ActionSuccessResponse> {
-    const provider = await this.getProvider(userId, accountId);
+    const { provider } = await this.getAccountAndProvider(userId, accountId);
     return provider.archive(messageId);
   }
 }
