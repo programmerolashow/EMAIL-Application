@@ -1,17 +1,23 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { getAurinkoAuthUrlAction } from "@/server/actions/aurinko";
+import { api } from "@/trpc/react";
 
 export const LinkAccountButton = () => {
+    const getAuthUrl = api.account.getAuthUrl.useMutation({
+        onSuccess: (authUrl) => {
+            window.location.href = authUrl;
+        },
+    });
+
     return (
         <Button
-            onClick={async () => {
-                const authUrl = await getAurinkoAuthUrlAction("Google");
-                window.location.href = authUrl;
+            disabled={getAuthUrl.isPending}
+            onClick={() => {
+                getAuthUrl.mutate({ serviceType: "Google" });
             }}
         >
-            Link Account
+            {getAuthUrl.isPending ? "Connecting..." : "Link Account"}
         </Button>
     );
 };
