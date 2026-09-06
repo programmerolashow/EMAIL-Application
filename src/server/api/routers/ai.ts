@@ -4,7 +4,22 @@ import { AIService } from "@/server/services/ai/ai-service";
 
 export const aiRouter = createTRPCRouter({
   /**
-   * Summarizes an email thread using OpenAI GPT models.
+   * Processes a natural language prompt (e.g. "Summarize my recent conversations with John")
+   * through the privacy-preserving AIContextBuilder pipeline.
+   */
+  askAI: protectedProcedure
+    .input(
+      z.object({
+        prompt: z.string().min(1),
+        accountId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return AIService.askAI(ctx.auth.userId, input.prompt, input.accountId);
+    }),
+
+  /**
+   * Summarizes a specific email thread using OpenAI GPT models.
    */
   summarizeThread: protectedProcedure
     .input(

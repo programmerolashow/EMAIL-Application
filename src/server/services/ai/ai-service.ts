@@ -14,12 +14,58 @@ export interface AIDraftResponse {
   body: string;
 }
 
+export interface AIQueryResponse {
+  answer: string;
+  resolvedEntity?: string;
+  messagesIncludedCount: number;
+}
+
 export class AIService {
   private static getOpenAIClient(): OpenAI | null {
     if (!env.OPENAI_API_KEY) {
       return null;
     }
     return new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  }
+
+  /**
+   * Processes a natural language AI query (e.g. "Summarize my recent conversations with John")
+   * using the privacy-aware AIContextBuilder pipeline to ensure only minimum necessary data reaches OpenAI.
+   */
+  static async askAI(
+    userId: string,
+    prompt: string,
+    accountId?: string
+  ): Promise<AIQueryResponse> {
+    const { systemPrompt, userPrompt, resolvedEntity, messagesIncludedCount } =
+      await AIContextBuilder.buildFilteredContextForPrompt(userId, prompt, accountId);
+
+    const openai = this.getOpenAIClient();
+
+    if (!openai) {
+      return {
+        answer: `[AI Privacy Engine]: Resolved entity "${resolvedEntity ?? "General Inbox"}". Retained ${messagesIncludedCount} relevant minimal message context(s). Configure OPENAI_API_KEY for live GPT completions.`,
+        resolvedEntity,
+        messagesIncludedCount,
+      };
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.3,
+    });
+
+    const answer = response.choices[0]?.message?.content ?? "No response generated.";
+
+    return {
+      answer,
+      resolvedEntity,
+      messagesIncludedCount,
+    };
   }
 
   /**
@@ -36,7 +82,6 @@ export class AIService {
     const openai = this.getOpenAIClient();
 
     if (!openai) {
-      // Fallback summary response if OpenAI API Key is not set in environment
       return {
         threadId,
         summary: `• Summary for "${thread.subject}": Contains ${thread.metadata.messageCount} messages.\n• Latest activity on ${thread.lastActivity}.\n• Configure OPENAI_API_KEY for live AI summaries.`,
