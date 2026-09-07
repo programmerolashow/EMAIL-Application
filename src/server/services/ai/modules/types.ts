@@ -41,10 +41,20 @@ export type EmailSummaryResult = z.infer<typeof emailSummarySchema>;
 
 export const timelineEventSchema = z.object({
   time: z.string().default("Unknown Date"),
+  speaker: z.string().default("Unknown / Unspecified"),
   event: z.string().default("Event details unrecorded"),
 });
 
 export type TimelineEvent = z.infer<typeof timelineEventSchema>;
+
+export const deliverableItemSchema = z.object({
+  item: z.string().default("Unspecified deliverable"),
+  owner: z.string().default("Unknown / Unassigned"),
+  deadline: z.string().default("Unspecified"),
+  status: z.string().default("Pending"),
+});
+
+export type DeliverableItem = z.infer<typeof deliverableItemSchema>;
 
 export const whoOwesWhatSchema = z.object({
   person: z.string().default("Unknown Person"),
@@ -53,15 +63,57 @@ export const whoOwesWhatSchema = z.object({
 
 export type WhoOwesWhatItem = z.infer<typeof whoOwesWhatSchema>;
 
-export const threadIntelligenceSchema = z.object({
-  overview: z.string().default("No overview generated."),
-  timeline: z.array(timelineEventSchema).default([]),
-  decisions: z.array(z.string()).default([]),
-  outstandingQuestions: z.array(z.string()).default([]),
-  actionItems: z.array(z.string()).default([]),
-  whoOwesWhat: z.array(whoOwesWhatSchema).default([]),
-  nextRecommendedAction: z.string().default("Review thread status."),
-});
+export const threadIntelligenceSchema = z
+  .object({
+    conversationOverview: z.string().optional(),
+    overview: z.string().optional(),
+    timeline: z.array(timelineEventSchema).default([]),
+    keyDecisions: z.array(z.string()).default([]),
+    decisions: z.array(z.string()).default([]),
+    outstandingQuestions: z.array(z.string()).default([]),
+    deliverables: z.array(deliverableItemSchema).default([]),
+    whoOwesWhat: z.array(whoOwesWhatSchema).default([]),
+    actionItems: z.array(z.string()).default([]),
+    recommendedNextActions: z.array(z.string()).default([]),
+    nextRecommendedAction: z.string().optional(),
+  })
+  .transform((data) => {
+    const overviewText = data.conversationOverview ?? data.overview ?? "No overview generated.";
+    const allDecisions = data.keyDecisions.length > 0 ? data.keyDecisions : data.decisions;
+    const nextAction =
+      data.nextRecommendedAction ??
+      (data.recommendedNextActions.length > 0 ? data.recommendedNextActions[0] : "Review thread status.");
+    const nextActionsList =
+      data.recommendedNextActions.length > 0 ? data.recommendedNextActions : [nextAction];
+
+    // Build whoOwesWhat mapping from deliverables if whoOwesWhat is empty
+    const mappedWhoOwesWhat: WhoOwesWhatItem[] =
+      data.whoOwesWhat.length > 0
+        ? data.whoOwesWhat
+        : data.deliverables.map((d) => ({
+            person: d.owner,
+            task: d.item,
+          }));
+
+    const mappedActionItems: string[] =
+      data.actionItems.length > 0
+        ? data.actionItems
+        : data.deliverables.map((d) => `${d.item} (${d.owner})`);
+
+    return {
+      conversationOverview: overviewText,
+      overview: overviewText,
+      timeline: data.timeline,
+      keyDecisions: allDecisions,
+      decisions: allDecisions,
+      outstandingQuestions: data.outstandingQuestions,
+      deliverables: data.deliverables,
+      whoOwesWhat: mappedWhoOwesWhat,
+      actionItems: mappedActionItems,
+      recommendedNextActions: nextActionsList,
+      nextRecommendedAction: nextAction,
+    };
+  });
 
 export type ThreadIntelligenceResult = z.infer<typeof threadIntelligenceSchema>;
 

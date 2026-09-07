@@ -20,26 +20,65 @@ export class ThreadIntelligenceService {
   ): Promise<ThreadIntelligenceResult> {
     const context = AIContextBuilder.buildThreadContext(thread);
 
+    const fallbackOverview = `Thread Intelligence for "${thread.subject}": ${thread.metadata.messageCount} messages exchanged.`;
+    const fallbackNextAction = "Review thread and follow up with participants.";
+    const fallbackDeliverables = thread.participants.map((p) => ({
+      item: "Review & respond to thread",
+      owner: p.name ?? p.address,
+      deadline: "Unspecified",
+      status: "Pending",
+    }));
+
     const fallback: ThreadIntelligenceResult = {
-      overview: `Thread Intelligence for "${thread.subject}": ${thread.metadata.messageCount} messages exchanged.`,
-      timeline: thread.messages.map((m) => ({ time: m.receivedAt, event: `Message from ${m.from.name ?? m.from.address}` })),
-      decisions: ["None recorded in offline mode"],
+      conversationOverview: fallbackOverview,
+      overview: fallbackOverview,
+      timeline: thread.messages.map((m) => ({
+        time: m.receivedAt || "Recent",
+        speaker: m.from.name ?? m.from.address,
+        event: `Sent message in thread`,
+      })),
+      keyDecisions: ["None recorded in current thread history"],
+      decisions: ["None recorded in current thread history"],
       outstandingQuestions: ["Review thread status"],
-      actionItems: ["Follow up with participants"],
-      whoOwesWhat: thread.participants.map((p) => ({ person: p.name ?? p.address, task: "Review & respond" })),
-      nextRecommendedAction: "Reply to latest message",
+      deliverables: fallbackDeliverables,
+      whoOwesWhat: fallbackDeliverables.map((d) => ({ person: d.owner, task: d.item })),
+      actionItems: fallbackDeliverables.map((d) => `${d.item} (${d.owner})`),
+      recommendedNextActions: [fallbackNextAction],
+      nextRecommendedAction: fallbackNextAction,
     };
 
-    const systemPrompt = `You are a conversation intelligence engine. Analyze the email thread and output JSON with schema:
+    const systemPrompt = `You are a conversation intelligence engine for executive email threads.
+Analyze the normalized email thread and output JSON matching the exact schema below:
+
 {
-  "overview": "High-level summary of discussion",
-  "timeline": [{"time": "ISO Date or description", "event": "Key event or message point"}],
-  "decisions": ["Decision 1", "Decision 2"],
-  "outstandingQuestions": ["Question 1", "Question 2"],
-  "actionItems": ["Task 1", "Task 2"],
-  "whoOwesWhat": [{"person": "Name/Email", "task": "Pending deliverable or task"}],
-  "nextRecommendedAction": "Single most impactful next step"
-}`;
+  "conversationOverview": "High-level summary of discussion",
+  "timeline": [
+    { "time": "Date/Time string", "speaker": "Name or Email of who said what", "event": "Key point or proposal made" }
+  ],
+  "keyDecisions": [
+    "Confirmed decision 1",
+    "Agreed point 2"
+  ],
+  "outstandingQuestions": [
+    "Unresolved question 1",
+    "Open issue 2"
+  ],
+  "deliverables": [
+    { "item": "Task or deliverable", "owner": "Assigned Person", "deadline": "Explicit Date or Unspecified", "status": "Pending" }
+  ],
+  "recommendedNextActions": [
+    "Recommended next step 1"
+  ]
+}
+
+STRICT ANTI-FABRICATION POLICY:
+1. Identify who said what (timeline with speaker and event).
+2. Identify what decisions were explicitly agreed upon.
+3. Identify unresolved questions or outstanding open items.
+4. Identify who owes what deliverables.
+5. NEVER fabricate or invent responsibilities, task owners, or completion deadlines.
+6. If task ownership is ambiguous, explicitly represent owner as "Unknown / Unassigned".
+7. If a deadline is not explicitly mentioned in the text, explicitly represent deadline as "Unspecified".`;
 
     return AIService.completeStructured<ThreadIntelligenceResult>(
       {
