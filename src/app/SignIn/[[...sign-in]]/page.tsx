@@ -1,14 +1,13 @@
-/* eslint-disable @typescript-eslint/prefer-nullish-coalescing */
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, ArrowRight, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
-export default function SignInPage() {
+function SignInFormContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +58,7 @@ export default function SignInPage() {
           </p>
         </div>
 
-        {(isVerified || verificationError || error) && (
+        {(isVerified || Boolean(verificationError) || Boolean(error)) && (
           <div
             className={`flex items-center gap-2 rounded-lg p-4 text-sm border ${
               isVerified
@@ -72,7 +71,7 @@ export default function SignInPage() {
             ) : (
               <AlertCircle className="h-4 w-4 shrink-0" />
             )}
-            <span>{error ?? verificationError ?? "Email verified successfully. Please sign in to continue."}</span>
+            <span>{error ?? (verificationError ?? "Email verified successfully. Please sign in to continue.")}</span>
           </div>
         )}
 
@@ -138,5 +137,19 @@ export default function SignInPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      }
+    >
+      <SignInFormContent />
+    </Suspense>
   );
 }

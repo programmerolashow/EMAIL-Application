@@ -52,6 +52,7 @@ export async function middleware(request: NextRequest) {
     isAuthPage ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/_next") ||
     pathname.includes(".");
 
