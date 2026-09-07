@@ -27,25 +27,35 @@ export class ActionItemExtractor {
       ? AIContextBuilder.buildThreadContext(target)
       : `SUBJECT: ${target.subject}\nFROM: ${target.from.name ?? target.from.address}\nDATE: ${target.receivedAt}\n\n${AIContextBuilder.sanitizeText(target.body, 1200)}`;
 
+    const fallbackTask = `Follow up on "${target.subject}"`;
     const fallback: ExtractedActionItem[] = [
       {
-        task: `Follow up on "${target.subject}"`,
+        taskDescription: fallbackTask,
+        task: fallbackTask,
+        assignedOwner: null,
         owner: "User",
-        deadline: "As soon as possible",
+        deadline: null,
         priority: "Medium",
         sourceEmailId,
       },
     ];
 
-    const systemPrompt = `You are an executive task extraction engine. Extract all actionable tasks from the email text and return JSON matching this schema:
+    const systemPrompt = `You are an executive action item extraction engine.
+Extract all actionable tasks from the provided email text and return a JSON array matching the exact schema:
+
 [
   {
-    "task": "Specific task description",
-    "owner": "Name of assigned person or User",
-    "deadline": "Extracted date or TBD",
+    "taskDescription": "Specific action item description",
+    "assignedOwner": "Person Name/Email or null",
+    "deadline": "Explicit Date or null",
     "priority": "High" | "Medium" | "Low"
   }
-]`;
+]
+
+STRICT NULLABILITY RULES:
+1. Do NOT invent or fabricate deadlines. If no explicit deadline is stated in the email text, set "deadline": null.
+2. If task ownership cannot be definitively determined, set "assignedOwner": null.
+3. Priority MUST be one of "High", "Medium", or "Low".`;
 
     const validated = await AIService.completeStructured<ExtractedActionItem[]>(
       {

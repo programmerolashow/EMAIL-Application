@@ -147,13 +147,40 @@ export interface DraftRewriteResult {
   hasMeaningPreserved: true;
 }
 
-export const extractedActionItemSchema = z.object({
-  task: z.string().default("Unspecified task"),
-  owner: z.string().default("User"),
-  deadline: z.string().default("TBD"),
-  priority: z.enum(["High", "Medium", "Low"]).default("Medium"),
-  sourceEmailId: z.string().optional(),
-});
+export const extractedActionItemSchema = z
+  .object({
+    taskDescription: z.string().optional(),
+    task: z.string().optional(),
+    assignedOwner: z.string().nullable().optional(),
+    owner: z.string().nullable().optional(),
+    deadline: z.string().nullable().optional(),
+    priority: z.enum(["High", "Medium", "Low"]).default("Medium"),
+    sourceEmailId: z.string().optional(),
+  })
+  .transform((data) => {
+    const desc = data.taskDescription ?? data.task ?? "Unspecified task";
+    const rawOwner = data.assignedOwner !== undefined ? data.assignedOwner : data.owner;
+    const cleanOwner =
+      rawOwner && rawOwner !== "TBD" && rawOwner !== "User" && rawOwner !== "Unknown"
+        ? rawOwner
+        : null;
+
+    const rawDeadline = data.deadline;
+    const cleanDeadline =
+      rawDeadline && rawDeadline !== "TBD" && rawDeadline !== "Unspecified" && rawDeadline !== "None"
+        ? rawDeadline
+        : null;
+
+    return {
+      taskDescription: desc,
+      task: desc,
+      assignedOwner: cleanOwner,
+      owner: cleanOwner ?? "User",
+      deadline: cleanDeadline,
+      priority: data.priority,
+      sourceEmailId: data.sourceEmailId,
+    };
+  });
 
 export const extractedActionItemsSchema = z.array(extractedActionItemSchema);
 
