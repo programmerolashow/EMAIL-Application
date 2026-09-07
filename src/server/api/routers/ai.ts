@@ -13,11 +13,16 @@ const replyToneEnum = z.enum([
 ]);
 
 const rewriteOptionEnum = z.enum([
+  "Make professional",
   "Make it more professional",
+  "Make shorter",
   "Make it shorter",
+  "Make friendlier",
   "Make it friendlier",
   "Fix grammar",
+  "Make persuasive",
   "Make it persuasive",
+  "Simplify",
   "Simplify it",
 ]);
 

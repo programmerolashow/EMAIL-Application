@@ -127,12 +127,25 @@ export type ReplyTone =
   | "Persuasive";
 
 export type RewriteOption =
+  | "Make professional"
   | "Make it more professional"
+  | "Make shorter"
   | "Make it shorter"
+  | "Make friendlier"
   | "Make it friendlier"
   | "Fix grammar"
+  | "Make persuasive"
   | "Make it persuasive"
+  | "Simplify"
   | "Simplify it";
+
+export interface DraftRewriteResult {
+  rewrittenContent: string;
+  originalLength: number;
+  rewrittenLength: number;
+  goal: RewriteOption;
+  hasMeaningPreserved: true;
+}
 
 export const extractedActionItemSchema = z.object({
   task: z.string().default("Unspecified task"),
