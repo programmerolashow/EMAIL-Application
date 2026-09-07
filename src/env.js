@@ -68,12 +68,13 @@ export const env = createEnv({
    * Fail fast with a clear configuration error when required variables are invalid or missing.
    */
   onValidationError: (errors) => {
+    const formattedErrors = JSON.stringify(errors, null, 2);
     console.error(
       "❌ Invalid environment variables configuration:\n",
-      JSON.stringify(errors, null, 2)
+      formattedErrors
     );
     throw new Error(
-      "Invalid environment variables configuration. Please verify your .env file or server environment settings."
+      `Invalid environment variables configuration:\n${formattedErrors}\nPlease check your Vercel Project Settings or .env file to ensure all required Nylas and database environment variables (NYLAS_CLIENT_ID, NYLAS_API_KEY, DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are set.`
     );
   },
 
