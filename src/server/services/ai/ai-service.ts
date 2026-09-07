@@ -1,5 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
+import type { z } from "zod";
 import { env } from "@/env";
 import { EmailService } from "@/server/services/email-service";
 import { AIContextBuilder } from "./context-builder";
@@ -120,11 +121,12 @@ export class AIService {
 
   /**
    * Central Gateway Structured JSON Completion Engine.
-   * Parses JSON responses with graceful fallback parsing.
+   * Parses JSON responses and validates against Zod schema with graceful fallback parsing.
    */
-  static async completeStructured<T>(
+  static async completeStructured<T, TInput = unknown>(
     options: AIGatewayOptions,
-    fallbackValue: T
+    fallbackValue: T,
+    schema?: z.ZodType<T, z.ZodTypeDef, TInput>
   ): Promise<T> {
     const rawContent = await this.complete(options, "");
     if (!rawContent) return fallbackValue;
@@ -142,7 +144,18 @@ export class AIService {
         jsonStr = rawContent.slice(arrStart, arrEnd + 1);
       }
 
-      return JSON.parse(jsonStr) as T;
+      const parsed: unknown = JSON.parse(jsonStr);
+
+      if (schema) {
+        const validationResult = schema.safeParse(parsed);
+        if (!validationResult.success) {
+          console.error("⚠️ [AIService] Structured response failed Zod schema validation:", validationResult.error.format());
+          return fallbackValue;
+        }
+        return validationResult.data;
+      }
+
+      return parsed as T;
     } catch (parseErr) {
       console.error("⚠️ [AIService] Failed to parse structured JSON response from OpenAI:", parseErr);
       return fallbackValue;

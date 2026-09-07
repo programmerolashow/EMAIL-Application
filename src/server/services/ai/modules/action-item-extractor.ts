@@ -3,7 +3,7 @@ import { EmailService } from "@/server/services/email-service";
 import type { NormalizedMessage, EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
 import { AIService } from "../ai-service";
-import type { ExtractedActionItem } from "./types";
+import { extractedActionItemsSchema, type ExtractedActionItem } from "./types";
 
 export class ActionItemExtractor {
   public static async extractActionItems(
@@ -47,31 +47,19 @@ export class ActionItemExtractor {
   }
 ]`;
 
-    const parsed = await AIService.completeStructured<Partial<ExtractedActionItem>[]>(
+    const validated = await AIService.completeStructured<ExtractedActionItem[]>(
       {
         systemPrompt,
         userPrompt: bodyContext,
         temperature: 0.1,
       },
-      fallback
+      fallback,
+      extractedActionItemsSchema
     );
 
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      return fallback;
-    }
-
-    return parsed.map((item) => {
-      const priorityStr = typeof item.priority === "string" ? item.priority : "Medium";
-      const priority: "High" | "Medium" | "Low" =
-        priorityStr === "High" || priorityStr === "Low" ? priorityStr : "Medium";
-
-      return {
-        task: item.task ?? "Unspecified task",
-        owner: item.owner ?? "User",
-        deadline: item.deadline ?? "TBD",
-        priority,
-        sourceEmailId,
-      };
-    });
+    return validated.map((item) => ({
+      ...item,
+      sourceEmailId: item.sourceEmailId ?? sourceEmailId,
+    }));
   }
 }

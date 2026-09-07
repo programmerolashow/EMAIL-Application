@@ -3,7 +3,7 @@ import { EmailService } from "@/server/services/email-service";
 import type { EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
 import { AIService } from "../ai-service";
-import type { ThreadIntelligenceResult } from "./types";
+import { threadIntelligenceSchema, type ThreadIntelligenceResult } from "./types";
 
 export class ThreadIntelligenceService {
   public static async getThreadIntelligence(
@@ -41,23 +41,14 @@ export class ThreadIntelligenceService {
   "nextRecommendedAction": "Single most impactful next step"
 }`;
 
-    const parsed = await AIService.completeStructured<Partial<ThreadIntelligenceResult>>(
+    return AIService.completeStructured<ThreadIntelligenceResult>(
       {
         systemPrompt,
         userPrompt: context,
         temperature: 0.2,
       },
-      fallback
+      fallback,
+      threadIntelligenceSchema
     );
-
-    return {
-      overview: parsed.overview ?? `Thread overview for ${thread.subject}`,
-      timeline: Array.isArray(parsed.timeline) ? parsed.timeline : fallback.timeline,
-      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : fallback.decisions,
-      outstandingQuestions: Array.isArray(parsed.outstandingQuestions) ? parsed.outstandingQuestions : fallback.outstandingQuestions,
-      actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : fallback.actionItems,
-      whoOwesWhat: Array.isArray(parsed.whoOwesWhat) ? parsed.whoOwesWhat : fallback.whoOwesWhat,
-      nextRecommendedAction: parsed.nextRecommendedAction ?? fallback.nextRecommendedAction,
-    };
   }
 }
