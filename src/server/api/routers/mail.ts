@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { EmailService } from "@/server/services/email-service";
+import { MailService } from "@/server/services/mail-service";
 
 const emailAddressSchema = z.object({
   name: z.string().optional(),
@@ -29,7 +29,7 @@ export const mailRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const pageToken = input?.cursor;
       const limit = input?.limit ?? 15;
-      return EmailService.getInbox(ctx.auth.userId, input?.accountId, {
+      return MailService.getInbox(ctx.auth.userId, input?.accountId, {
         pageToken,
         limit,
         folderId: input?.folderId,
@@ -39,13 +39,13 @@ export const mailRouter = createTRPCRouter({
   getMessage: protectedProcedure
     .input(z.object({ messageId: z.string(), accountId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
-      return EmailService.getMessage(ctx.auth.userId, input.messageId, input.accountId);
+      return MailService.getMessage(ctx.auth.userId, input.messageId, input.accountId);
     }),
 
   getThread: protectedProcedure
     .input(z.object({ threadId: z.string(), accountId: z.string().optional() }))
     .query(async ({ ctx, input }) => {
-      return EmailService.getThread(ctx.auth.userId, input.threadId, input.accountId);
+      return MailService.getThread(ctx.auth.userId, input.threadId, input.accountId);
     }),
 
   searchEmails: protectedProcedure
@@ -57,7 +57,7 @@ export const mailRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const pageToken = input?.cursor;
       const limit = input?.limit ?? 15;
-      return EmailService.searchEmails(ctx.auth.userId, input.query, input.accountId, {
+      return MailService.searchMail(ctx.auth.userId, input.query, input.accountId, {
         pageToken,
         limit,
       });
@@ -71,7 +71,7 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return EmailService.sendEmail(ctx.auth.userId, input.draft, input.accountId);
+      return MailService.sendMail(ctx.auth.userId, input.draft, input.accountId);
     }),
 
   createDraft: protectedProcedure
@@ -82,7 +82,7 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return EmailService.createDraft(ctx.auth.userId, input.draft, input.accountId);
+      return MailService.createDraft(ctx.auth.userId, input.draft, input.accountId);
     }),
 
   updateDraft: protectedProcedure
@@ -94,13 +94,13 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return EmailService.updateDraft(ctx.auth.userId, input.draftId, input.draft, input.accountId);
+      return MailService.updateDraft(ctx.auth.userId, input.draftId, input.draft, input.accountId);
     }),
 
   deleteDraft: protectedProcedure
     .input(z.object({ draftId: z.string(), accountId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      return EmailService.deleteDraft(ctx.auth.userId, input.draftId, input.accountId);
+      return MailService.deleteDraft(ctx.auth.userId, input.draftId, input.accountId);
     }),
 
   markRead: protectedProcedure
@@ -112,12 +112,12 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return EmailService.markRead(ctx.auth.userId, input.messageId, input.isRead, input.accountId);
+      return MailService.markAsRead(ctx.auth.userId, input.messageId, input.isRead, input.accountId);
     }),
 
   archive: protectedProcedure
     .input(z.object({ messageId: z.string(), accountId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      return EmailService.archive(ctx.auth.userId, input.messageId, input.accountId);
+      return MailService.archiveMessage(ctx.auth.userId, input.messageId, input.accountId);
     }),
 });

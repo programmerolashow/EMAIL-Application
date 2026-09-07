@@ -1,142 +1,48 @@
 import "server-only";
-import { db } from "@/server/db";
-import { getCommunicationProvider } from "@/lib/communication-provider";
-import type {
-  ListParams,
-  Draft,
-  CursorPaginatedResponse,
-} from "@/lib/communication-provider/types";
-import {
-  normalizeMessage,
-  normalizeThread,
-  type NormalizedMessage,
-  type EmailThread,
-} from "@/lib/email-normalizer";
+import { MailService } from "./mail-service";
+import type { ListParams, Draft } from "@/lib/communication-provider/types";
 
-export interface ActionSuccessResponse {
-  success: boolean;
-  id?: string;
-}
-
+/**
+ * Backward compatibility wrapper delegating to the central MailService.
+ */
 export class EmailService {
-  /**
-   * Helper to retrieve the user's account and return a CommunicationProvider instance along with account metadata.
-   */
-  private static async getAccountAndProvider(userId: string, accountId?: string) {
-    const account = accountId
-      ? await db.account.findFirst({ where: { id: accountId, userId } })
-      : await db.account.findFirst({ where: { userId } });
-
-    if (!account) {
-      throw new Error("No connected email account found for user.");
-    }
-
-    return {
-      account,
-      provider: getCommunicationProvider(account.accessToken),
-    };
+  static async getInbox(userId: string, accountId?: string, params?: ListParams) {
+    return MailService.getInbox(userId, accountId, params);
   }
 
-  /**
-   * Fetches inbox emails for the given user, returning a cursor-paginated response.
-   */
-  static async getInbox(
-    userId: string,
-    accountId?: string,
-    params?: ListParams
-  ): Promise<CursorPaginatedResponse<NormalizedMessage>> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    const result = await provider.listMessages(params);
-
-    return {
-      items: result.messages.map(normalizeMessage),
-      nextCursor: result.nextPageToken,
-      hasMore: Boolean(result.nextPageToken),
-    };
+  static async getMessage(userId: string, messageId: string, accountId?: string) {
+    return MailService.getMessage(userId, messageId, accountId);
   }
 
-  /**
-   * Fetches a single message by ID, returning a normalized representation.
-   */
-  static async getMessage(userId: string, messageId: string, accountId?: string): Promise<NormalizedMessage> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    const rawMessage = await provider.getMessage(messageId);
-    return normalizeMessage(rawMessage);
+  static async getThread(userId: string, threadId: string, accountId?: string) {
+    return MailService.getThread(userId, threadId, accountId);
   }
 
-  /**
-   * Fetches an email thread by ID, returning a normalized EmailThread entity.
-   */
-  static async getThread(userId: string, threadId: string, accountId?: string): Promise<EmailThread> {
-    const { account, provider } = await this.getAccountAndProvider(userId, accountId);
-    const rawThread = await provider.getThread(threadId);
-    return normalizeThread(rawThread, account.provider ?? "Email");
+  static async searchEmails(userId: string, query: string, accountId?: string, params?: ListParams) {
+    return MailService.searchMail(userId, query, accountId, params);
   }
 
-  /**
-   * Searches emails by query string, returning a cursor-paginated response.
-   */
-  static async searchEmails(
-    userId: string,
-    query: string,
-    accountId?: string,
-    params?: ListParams
-  ): Promise<CursorPaginatedResponse<NormalizedMessage>> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    const result = await provider.searchMessages(query, params);
-
-    return {
-      items: result.messages.map(normalizeMessage),
-      nextCursor: result.nextPageToken,
-      hasMore: Boolean(result.nextPageToken),
-    };
+  static async sendEmail(userId: string, draft: Draft, accountId?: string) {
+    return MailService.sendMail(userId, draft, accountId);
   }
 
-  /**
-   * Sends an email message.
-   */
-  static async sendEmail(userId: string, draft: Draft, accountId?: string): Promise<{ id: string }> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    return provider.sendMessage(draft);
+  static async createDraft(userId: string, draft: Draft, accountId?: string) {
+    return MailService.createDraft(userId, draft, accountId);
   }
 
-  /**
-   * Creates a draft email.
-   */
-  static async createDraft(userId: string, draft: Draft, accountId?: string): Promise<{ id: string }> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    return provider.createDraft(draft);
+  static async updateDraft(userId: string, draftId: string, draft: Draft, accountId?: string) {
+    return MailService.updateDraft(userId, draftId, draft, accountId);
   }
 
-  /**
-   * Updates an existing draft.
-   */
-  static async updateDraft(userId: string, draftId: string, draft: Draft, accountId?: string): Promise<{ id: string }> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    return provider.updateDraft(draftId, draft);
+  static async deleteDraft(userId: string, draftId: string, accountId?: string) {
+    return MailService.deleteDraft(userId, draftId, accountId);
   }
 
-  /**
-   * Deletes a draft email.
-   */
-  static async deleteDraft(userId: string, draftId: string, accountId?: string): Promise<ActionSuccessResponse> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    return provider.deleteDraft(draftId);
+  static async markRead(userId: string, messageId: string, isRead: boolean, accountId?: string) {
+    return MailService.markAsRead(userId, messageId, isRead, accountId);
   }
 
-  /**
-   * Marks an email message as read or unread.
-   */
-  static async markRead(userId: string, messageId: string, isRead: boolean, accountId?: string): Promise<ActionSuccessResponse> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    return provider.markRead(messageId, isRead);
-  }
-
-  /**
-   * Archives an email message.
-   */
-  static async archive(userId: string, messageId: string, accountId?: string): Promise<ActionSuccessResponse> {
-    const { provider } = await this.getAccountAndProvider(userId, accountId);
-    return provider.archive(messageId);
+  static async archive(userId: string, messageId: string, accountId?: string) {
+    return MailService.archiveMessage(userId, messageId, accountId);
   }
 }
