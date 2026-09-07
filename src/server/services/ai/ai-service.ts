@@ -199,25 +199,9 @@ export class AIService {
     userId: string,
     threadId: string,
     accountId?: string
-  ): Promise<AISummaryResponse> {
+  ): Promise<EmailSummaryResult> {
     const thread = await EmailService.getThread(userId, threadId, accountId);
-    const { system, user } = AIContextBuilder.buildSummaryPrompt(thread);
-
-    const fallbackSummary = `• Summary for "${thread.subject}": Contains ${thread.metadata.messageCount} messages.\n• Latest activity on ${thread.lastActivity}.\n• Configure OPENAI_API_KEY for live AI summaries.`;
-
-    const summary = await this.complete(
-      {
-        systemPrompt: system,
-        userPrompt: user,
-        temperature: 0.3,
-      },
-      fallbackSummary
-    );
-
-    return {
-      threadId,
-      summary,
-    };
+    return EmailSummarizer.summarize(thread);
   }
 
   /**
