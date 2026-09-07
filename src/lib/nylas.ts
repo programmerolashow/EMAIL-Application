@@ -1,13 +1,19 @@
 import "server-only";
 import { env } from "@/env";
 
-export const getNylasAuthUrl = (serviceType: "Google" | "Office365") => {
+const getCallbackUrl = () => {
+  if (env.NYLAS_CALLBACK_URI) {
+    return env.NYLAS_CALLBACK_URI;
+  }
   const baseUrl =
     env.NEXT_PUBLIC_APP_URL ??
     (process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000");
+  return `${baseUrl}/api/nylas/callback`;
+};
 
+export const getNylasAuthUrl = (serviceType: "Google" | "Office365") => {
   const providerMap: Record<"Google" | "Office365", string> = {
     Google: "google",
     Office365: "microsoft",
@@ -15,7 +21,7 @@ export const getNylasAuthUrl = (serviceType: "Google" | "Office365") => {
 
   const params = new URLSearchParams({
     client_id: env.NYLAS_CLIENT_ID,
-    redirect_uri: `${baseUrl}/api/nylas/callback`,
+    redirect_uri: getCallbackUrl(),
     response_type: "code",
     provider: providerMap[serviceType] ?? "google",
   });
@@ -24,12 +30,6 @@ export const getNylasAuthUrl = (serviceType: "Google" | "Office365") => {
 };
 
 export const exchangeCodeForAccessToken = async (code: string) => {
-  const baseUrl =
-    env.NEXT_PUBLIC_APP_URL ??
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000");
-
   const response = await fetch(`${env.NYLAS_API_URI}/v3/connect/token`, {
     method: "POST",
     headers: {
@@ -40,7 +40,7 @@ export const exchangeCodeForAccessToken = async (code: string) => {
       client_secret: env.NYLAS_API_KEY,
       grant_type: "authorization_code",
       code,
-      redirect_uri: `${baseUrl}/api/nylas/callback`,
+      redirect_uri: getCallbackUrl(),
     }),
   });
 

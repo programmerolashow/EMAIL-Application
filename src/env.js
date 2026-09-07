@@ -15,6 +15,7 @@ export const env = createEnv({
     NYLAS_CLIENT_ID: z.string().min(1, "NYLAS_CLIENT_ID is required"),
     NYLAS_API_KEY: z.string().min(1, "NYLAS_API_KEY is required"),
     NYLAS_API_URI: z.string().url("NYLAS_API_URI must be a valid URL").default("https://api.us.nylas.com"),
+    NYLAS_CALLBACK_URI: z.string().url("NYLAS_CALLBACK_URI must be a valid URL").optional(),
 
     // OpenAI Credentials & Configuration
     OPENAI_API_KEY: z.string().optional(),
@@ -49,6 +50,7 @@ export const env = createEnv({
     NYLAS_CLIENT_ID: process.env.NYLAS_CLIENT_ID,
     NYLAS_API_KEY: process.env.NYLAS_API_KEY,
     NYLAS_API_URI: process.env.NYLAS_API_URI,
+    NYLAS_CALLBACK_URI: process.env.NYLAS_CALLBACK_URI,
 
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
