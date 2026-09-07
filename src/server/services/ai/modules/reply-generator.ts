@@ -1,9 +1,8 @@
 import "server-only";
-import OpenAI from "openai";
-import { env } from "@/env";
 import { EmailService } from "@/server/services/email-service";
 import type { EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
+import { AIService } from "../ai-service";
 import type { ReplyTone } from "./types";
 
 export class ReplyGenerator {
@@ -19,15 +18,13 @@ export class ReplyGenerator {
       ? await EmailService.getThread(userId, message.threadId, accountId)
       : null;
     const instruction = prompt ?? "Please draft a helpful response.";
-    const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
-    return this.generate(thread, instruction, tone, openai);
+    return this.generate(thread, instruction, tone);
   }
 
   public static async generate(
     thread: EmailThread | null,
     instruction: string,
-    tone: ReplyTone,
-    openai: OpenAI | null
+    tone: ReplyTone
   ): Promise<{ subject: string; body: string }> {
     const context = thread ? AIContextBuilder.buildThreadContext(thread) : "No previous thread context (new message).";
 
@@ -49,12 +46,7 @@ export class ReplyGenerator {
         : `Re: ${thread.subject}`
       : "Email Response";
 
-    if (!openai) {
-      return {
-        subject: subjectPrefix,
-        body: `Hi,\n\n[Tone: ${tone}]\n${instruction}\n\n[Note: Configure OPENAI_API_KEY for live GPT reply generation. Review and edit before sending.]`,
-      };
-    }
+    const fallbackBody = `Hi,\n\n[Tone: ${tone}]\n${instruction}\n\n[Note: Configure OPENAI_API_KEY for live GPT reply generation. Review and edit before sending.]`;
 
     const systemPrompt = `You are an AI draft assistant. Generate an email reply according to the user's intent.
 TONE REQUIREMENT: ${toneInstruction}
@@ -70,29 +62,18 @@ ${instruction}
 
 Please generate the reply draft body.`;
 
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+    const body = await AIService.complete(
+      {
+        systemPrompt,
+        userPrompt,
         temperature: 0.7,
-      });
-
-      const body = response.choices[0]?.message?.content ?? "";
-
-      return {
-        subject: subjectPrefix,
-        body: body.trim(),
-      };
-    } catch (err) {
-      console.error("ReplyGenerator GPT error:", err);
-    }
+      },
+      fallbackBody
+    );
 
     return {
       subject: subjectPrefix,
-      body: `Hi,\n\n${instruction}\n\nBest regards,`,
+      body: body.trim(),
     };
   }
 }

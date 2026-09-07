@@ -1,8 +1,7 @@
 import "server-only";
-import OpenAI from "openai";
-import { env } from "@/env";
 import type { RewriteOption } from "./types";
 import { AIContextBuilder } from "../context-builder";
+import { AIService } from "../ai-service";
 
 export class DraftRewriter {
   public static async rewriteDraft(
@@ -10,15 +9,13 @@ export class DraftRewriter {
     option: RewriteOption,
     customPrompt?: string
   ): Promise<string> {
-    const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
-    const result = await this.rewrite(draftText, option, openai, customPrompt);
+    const result = await this.rewrite(draftText, option, customPrompt);
     return result.rewrittenContent;
   }
 
   public static async rewrite(
     content: string,
     option: RewriteOption,
-    openai: OpenAI | null,
     customPrompt?: string
   ): Promise<{ rewrittenContent: string }> {
     const cleanContent = AIContextBuilder.sanitizeText(content, 4000);
@@ -33,38 +30,24 @@ export class DraftRewriter {
     };
 
     const instruction = customPrompt ?? optionPrompts[option] ?? optionPrompts["Make it more professional"];
-
-    if (!openai) {
-      return {
-        rewrittenContent: `[Rewritten (${option})]:\n${cleanContent}\n\n[Configure OPENAI_API_KEY for live GPT draft rewriting.]`,
-      };
-    }
+    const fallbackContent = `[Rewritten (${option})]:\n${cleanContent}\n\n[Configure OPENAI_API_KEY for live GPT draft rewriting.]`;
 
     const systemPrompt = `You are a professional email editing assistant.
 TASK: ${instruction}
 
 Output ONLY the rewritten draft text. Do not add introductory conversational filler.`;
 
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: cleanContent },
-        ],
+    const rewritten = await AIService.complete(
+      {
+        systemPrompt,
+        userPrompt: cleanContent,
         temperature: 0.5,
-      });
-
-      const rewritten = response.choices[0]?.message?.content ?? content;
-      return {
-        rewrittenContent: rewritten.trim(),
-      };
-    } catch (err) {
-      console.error("DraftRewriter GPT error:", err);
-    }
+      },
+      fallbackContent
+    );
 
     return {
-      rewrittenContent: content,
+      rewrittenContent: rewritten.trim(),
     };
   }
 }

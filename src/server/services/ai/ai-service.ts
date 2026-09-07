@@ -32,7 +32,22 @@ export interface AIQueryResponse {
   messagesIncludedCount: number;
 }
 
+export interface AIGatewayOptions {
+  model?: string;
+  systemPrompt: string;
+  userPrompt: string;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+}
+
 export class AIService {
+  private static readonly DEFAULT_MODEL = "gpt-4o-mini";
+  private static readonly DEFAULT_TIMEOUT_MS = 25000;
+
+  /**
+   * Private helper to obtain initialized OpenAI client (or null if OPENAI_API_KEY is unset).
+   */
   private static getOpenAIClient(): OpenAI | null {
     if (!env.OPENAI_API_KEY) {
       return null;
@@ -41,8 +56,102 @@ export class AIService {
   }
 
   /**
+   * Central Gateway Completion Engine.
+   * Handles client instantiation, timeouts (AbortController), request validation,
+   * error handling, logging, token efficiency, and fallback logic.
+   */
+  static async complete(options: AIGatewayOptions, fallbackText?: string): Promise<string> {
+    const {
+      model = this.DEFAULT_MODEL,
+      systemPrompt,
+      userPrompt,
+      temperature = 0.3,
+      maxTokens,
+      timeoutMs = this.DEFAULT_TIMEOUT_MS,
+    } = options;
+
+    if (!systemPrompt || !userPrompt) {
+      throw new Error("[AIService] Both systemPrompt and userPrompt are required.");
+    }
+
+    const openai = this.getOpenAIClient();
+    if (!openai) {
+      console.log("ℹ️ [AIService] OpenAI API key not configured. Returning fallback response.");
+      return fallbackText ?? "OPENAI_API_KEY is not configured in server environment.";
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const startTime = Date.now();
+
+    try {
+      const response = await openai.chat.completions.create(
+        {
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature,
+          ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        },
+        { signal: controller.signal }
+      );
+
+      const duration = Date.now() - startTime;
+      const totalTokens = response.usage?.total_tokens !== undefined ? String(response.usage.total_tokens) : "unknown";
+      console.log(
+        `⚡ [AIService] OpenAI Call Succeeded [model=${model}, duration=${duration}ms, tokens=${totalTokens}]`
+      );
+
+      return response.choices[0]?.message?.content ?? fallbackText ?? "";
+    } catch (error: unknown) {
+      const duration = Date.now() - startTime;
+      if (error instanceof Error && error.name === "AbortError") {
+        console.error(`❌ [AIService] OpenAI Call Timed Out after ${duration}ms.`);
+      } else {
+        console.error(`❌ [AIService] OpenAI Call Failed after ${duration}ms:`, error);
+      }
+      return fallbackText ?? "";
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Central Gateway Structured JSON Completion Engine.
+   * Parses JSON responses with graceful fallback parsing.
+   */
+  static async completeStructured<T>(
+    options: AIGatewayOptions,
+    fallbackValue: T
+  ): Promise<T> {
+    const rawContent = await this.complete(options, "");
+    if (!rawContent) return fallbackValue;
+
+    try {
+      const jsonStart = rawContent.indexOf("{");
+      const jsonEnd = rawContent.lastIndexOf("}");
+      const arrStart = rawContent.indexOf("[");
+      const arrEnd = rawContent.lastIndexOf("]");
+
+      let jsonStr = rawContent;
+      if (jsonStart !== -1 && jsonEnd !== -1 && (arrStart === -1 || jsonStart < arrStart)) {
+        jsonStr = rawContent.slice(jsonStart, jsonEnd + 1);
+      } else if (arrStart !== -1 && arrEnd !== -1) {
+        jsonStr = rawContent.slice(arrStart, arrEnd + 1);
+      }
+
+      return JSON.parse(jsonStr) as T;
+    } catch (parseErr) {
+      console.error("⚠️ [AIService] Failed to parse structured JSON response from OpenAI:", parseErr);
+      return fallbackValue;
+    }
+  }
+
+  /**
    * Processes a natural language AI query (e.g. "Summarize my recent conversations with John")
-   * using the privacy-aware AIContextBuilder pipeline to ensure only minimum necessary data reaches OpenAI.
+   * using the privacy-aware AIContextBuilder pipeline.
    */
   static async askAI(
     userId: string,
@@ -52,26 +161,16 @@ export class AIService {
     const { systemPrompt, userPrompt, resolvedEntity, messagesIncludedCount } =
       await AIContextBuilder.buildFilteredContextForPrompt(userId, prompt, accountId);
 
-    const openai = this.getOpenAIClient();
+    const fallbackAnswer = `[AI Privacy Engine]: Resolved entity "${resolvedEntity ?? "General Inbox"}". Retained ${messagesIncludedCount} relevant minimal message context(s). Configure OPENAI_API_KEY for live GPT completions.`;
 
-    if (!openai) {
-      return {
-        answer: `[AI Privacy Engine]: Resolved entity "${resolvedEntity ?? "General Inbox"}". Retained ${messagesIncludedCount} relevant minimal message context(s). Configure OPENAI_API_KEY for live GPT completions.`,
-        resolvedEntity,
-        messagesIncludedCount,
-      };
-    }
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.3,
-    });
-
-    const answer = response.choices[0]?.message?.content ?? "No response generated.";
+    const answer = await this.complete(
+      {
+        systemPrompt,
+        userPrompt,
+        temperature: 0.3,
+      },
+      fallbackAnswer
+    );
 
     return {
       answer,
@@ -91,25 +190,16 @@ export class AIService {
     const thread = await EmailService.getThread(userId, threadId, accountId);
     const { system, user } = AIContextBuilder.buildSummaryPrompt(thread);
 
-    const openai = this.getOpenAIClient();
+    const fallbackSummary = `• Summary for "${thread.subject}": Contains ${thread.metadata.messageCount} messages.\n• Latest activity on ${thread.lastActivity}.\n• Configure OPENAI_API_KEY for live AI summaries.`;
 
-    if (!openai) {
-      return {
-        threadId,
-        summary: `• Summary for "${thread.subject}": Contains ${thread.metadata.messageCount} messages.\n• Latest activity on ${thread.lastActivity}.\n• Configure OPENAI_API_KEY for live AI summaries.`,
-      };
-    }
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.3,
-    });
-
-    const summary = response.choices[0]?.message?.content ?? "No summary generated.";
+    const summary = await this.complete(
+      {
+        systemPrompt: system,
+        userPrompt: user,
+        temperature: 0.3,
+      },
+      fallbackSummary
+    );
 
     return {
       threadId,
@@ -131,7 +221,6 @@ export class AIService {
       : null;
 
     const { system, user } = AIContextBuilder.buildDraftPrompt(thread, instruction);
-    const openai = this.getOpenAIClient();
 
     const subjectPrefix = thread?.subject
       ? thread.subject.toLowerCase().startsWith("re:")
@@ -139,23 +228,16 @@ export class AIService {
         : `Re: ${thread.subject}`
       : "Draft Subject";
 
-    if (!openai) {
-      return {
-        subject: subjectPrefix,
-        body: `Hi,\n\n${instruction}\n\n[Configure OPENAI_API_KEY for automated GPT draft generation.]`,
-      };
-    }
+    const fallbackBody = `Hi,\n\n${instruction}\n\n[Configure OPENAI_API_KEY for automated GPT draft generation.]`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.7,
-    });
-
-    const body = response.choices[0]?.message?.content ?? "";
+    const body = await this.complete(
+      {
+        systemPrompt: system,
+        userPrompt: user,
+        temperature: 0.7,
+      },
+      fallbackBody
+    );
 
     return {
       subject: subjectPrefix,
@@ -187,8 +269,6 @@ export class AIService {
 
   /**
    * Subtask 7.3: Tone-guided reply generation.
-   * Note: The generated draft is returned to the caller for editing and review.
-   * Never auto-sent without explicit user action.
    */
   static async generateReply(
     userId: string,
@@ -223,4 +303,3 @@ export class AIService {
     return ActionItemExtractor.extractActionItems(userId, emailOrThreadId, isThread, accountId);
   }
 }
-
