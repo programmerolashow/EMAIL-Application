@@ -42,29 +42,54 @@ export default function DashboardPage() {
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
 
-  // tRPC Inbox Query
+  // Cursor & Page Accumulation State
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [accumulatedMessages, setAccumulatedMessages] = useState<NormalizedMessage[]>([]);
+
+  // Reset pagination state when filters, folders, or account selection change
+  React.useEffect(() => {
+    setCursor(undefined);
+    setAccumulatedMessages([]);
+  }, [selectedAccountId, activeFolder, searchQuery]);
+
+  // tRPC Inbox Query with Cursor Pagination
   const inboxQuery = api.mail.getInbox.useQuery(
     {
       accountId: selectedAccountId,
-      limit: 20,
+      cursor,
+      limit: 15,
+      folderId: activeFolder,
     },
     { enabled: !searchQuery }
   );
 
-  // tRPC Search Query
+  // tRPC Search Query with Cursor Pagination
   const searchQueryResult = api.mail.searchEmails.useQuery(
     {
       query: searchQuery,
       accountId: selectedAccountId,
-      limit: 20,
+      cursor,
+      limit: 15,
     },
     { enabled: Boolean(searchQuery.trim()) }
   );
 
   const rawResponse = searchQuery ? searchQueryResult.data : inboxQuery.data;
-  const messages: NormalizedMessage[] = rawResponse?.items ?? [];
   const nextCursor = rawResponse?.nextCursor;
   const isLoading = searchQuery ? searchQueryResult.isLoading : inboxQuery.isLoading;
+
+  // Accrue messages into state while avoiding duplicate items
+  React.useEffect(() => {
+    if (rawResponse?.items) {
+      setAccumulatedMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const newItems = rawResponse.items.filter((m) => !existingIds.has(m.id));
+        return [...prev, ...newItems];
+      });
+    }
+  }, [rawResponse]);
+
+  const messages: NormalizedMessage[] = accumulatedMessages.length > 0 ? accumulatedMessages : (rawResponse?.items ?? []);
 
   const rawThreads: EmailThread[] = messages.map((msg) => ({
     id: msg.threadId || msg.id,
@@ -224,7 +249,9 @@ export default function DashboardPage() {
           isLoading={isLoading}
           hasMore={Boolean(nextCursor)}
           onLoadMore={() => {
-            // Cursor load pagination trigger
+            if (nextCursor) {
+              setCursor(nextCursor);
+            }
           }}
           filterUnreadOnly={filterUnreadOnly}
           onToggleUnreadFilter={() => setFilterUnreadOnly(!filterUnreadOnly)}
