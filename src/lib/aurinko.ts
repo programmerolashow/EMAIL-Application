@@ -12,7 +12,7 @@ export const getAurinkoAuthUrl = (serviceType: 'Google' | 'Office365') => {
     returnUrl: `${baseUrl}/api/aurinko/callback`,
   });
 
-  return `https://api.aurinko.io/v1/auth/prepare?${params.toString()}`;
+  return `https://api.aurinko.io/v1/auth/authorize?${params.toString()}`;
 };
 
 export const exchangeCodeForAccessToken = async (code: string) => {
