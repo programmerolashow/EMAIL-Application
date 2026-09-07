@@ -89,12 +89,12 @@ export interface SearchMessagesParams extends ListParams {
  *          ↓
  * CommunicationProvider (Abstract Contract)
  *          ↓
- * AurinkoCommunicationProvider (Provider Implementation)
+ * NylasCommunicationProvider (Provider Implementation)
  *          ↓
- * Aurinko API (Gateway to Gmail / Outlook / Office365)
+ * Nylas API (Gateway to Gmail / Outlook / Office365)
  * 
  * Never allow React components or Application code to bypass this interface
- * to call Gmail API, Outlook API, or Aurinko API directly.
+ * to call Gmail API, Outlook API, or Nylas API directly.
  */
 export interface CommunicationProvider {
   /** List messages from inbox or folder */

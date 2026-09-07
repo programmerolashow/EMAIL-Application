@@ -7,23 +7,27 @@ export async function POST(request: Request) {
   try {
     eventPayload = (await request.json()) as Record<string, unknown>;
   } catch (err) {
-    console.error("❌ Aurinko Webhook Payload Parsing Failed:", err);
+    console.error("❌ Nylas Webhook Payload Parsing Failed:", err);
     return NextResponse.json(
       { error: "Invalid JSON payload." },
       { status: 400 }
     );
   }
 
-  // Extract Event Metadata
+  // Extract Event Metadata from Nylas Webhook schema
+  const data = (typeof eventPayload.data === "object" && eventPayload.data !== null
+    ? eventPayload.data
+    : eventPayload) as Record<string, unknown>;
+
   const eventId =
     typeof eventPayload.id === "string"
       ? eventPayload.id
-      : typeof eventPayload.eventId === "string"
-      ? eventPayload.eventId
-      : request.headers.get("x-aurinko-event-id") ?? undefined;
+      : typeof data.id === "string"
+      ? data.id
+      : request.headers.get("x-nylas-signature") ?? undefined;
 
   if (!eventId) {
-    console.warn("⚠️ Rejecting Aurinko webhook: Missing eventId.");
+    console.warn("⚠️ Rejecting Nylas webhook: Missing event identifier.");
     return NextResponse.json(
       { error: "Missing required unique event identifier." },
       { status: 400 }
@@ -33,26 +37,22 @@ export async function POST(request: Request) {
   const eventType =
     typeof eventPayload.type === "string"
       ? eventPayload.type
-      : typeof eventPayload.eventType === "string"
-      ? eventPayload.eventType
+      : typeof eventPayload.event === "string"
+      ? eventPayload.event
       : "notification";
 
-  const data = (typeof eventPayload.data === "object" && eventPayload.data !== null
-    ? eventPayload.data
-    : eventPayload) as Record<string, unknown>;
-
   const accountId =
-    typeof data.accountId === "string"
-      ? data.accountId
-      : typeof eventPayload.accountId === "string"
-      ? eventPayload.accountId
+    typeof data.grant_id === "string"
+      ? data.grant_id
+      : typeof eventPayload.grant_id === "string"
+      ? eventPayload.grant_id
       : undefined;
 
   // Execute Idempotency Strategy
   try {
     const result = await WebhookService.processEvent({
       eventId,
-      provider: "Aurinko",
+      provider: "Nylas",
       eventType,
       accountId,
       payload: eventPayload,
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
-    console.error(`❌ Aurinko Webhook Handler Exception [eventId=${eventId}]:`, error);
+    console.error(`❌ Nylas Webhook Handler Exception [eventId=${eventId}]:`, error);
     return NextResponse.json(
       { error: "Internal webhook processing error." },
       { status: 500 }

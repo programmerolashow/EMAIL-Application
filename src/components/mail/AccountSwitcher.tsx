@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { api } from "@/trpc/react";
-import { getAurinkoAuthUrlAction } from "@/server/actions/aurinko";
+import { getNylasAuthUrlAction } from "@/server/actions/nylas";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +31,7 @@ export function AccountSwitcher({
   const handleConnect = async (serviceType: "Google" | "Office365") => {
     try {
       setConnecting(true);
-      const url = await getAurinkoAuthUrlAction(serviceType);
+      const url = await getNylasAuthUrlAction(serviceType);
       window.location.href = url;
     } catch (err) {
       console.error("Failed to connect account:", err);

@@ -1,4 +1,4 @@
-import { exchangeCodeForAccessToken, getAccount } from "@/lib/aurinko";
+import { exchangeCodeForAccessToken, getAccount } from "@/lib/nylas";
 import { db } from "@/server/db";
 import { createClient } from "@/lib/supabase/server";
 import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
@@ -19,53 +19,60 @@ export const GET = async (req: NextRequest) => {
 
   const userId = user.id;
   const searchParams = req.nextUrl.searchParams;
-  const status = searchParams.get("status");
-
-  if (status !== "success") {
-    return NextResponse.json({ error: "Aurinko connection failed" }, { status: 400 });
-  }
-
   const code = searchParams.get("code");
+
   if (!code) {
     return NextResponse.json({ error: "No code provided" }, { status: 400 });
   }
 
   try {
     const token = await exchangeCodeForAccessToken(code);
-    const account = await getAccount(token.accessToken);
+    const account = await getAccount(token.accessToken, token.grantId);
 
-    if (!account?.id || !account?.email) {
-      return NextResponse.json({ error: "Invalid account details returned from Aurinko" }, { status: 400 });
+    const accountId = account.id || token.grantId;
+
+    if (!accountId || !account?.email) {
+      return NextResponse.json(
+        { error: "Invalid account details returned from Nylas" },
+        { status: 400 }
+      );
     }
 
-    const expiresAt = token.expiresIn ? new Date(Date.now() + token.expiresIn * 1000) : undefined;
+    const expiresAt = token.expiresIn
+      ? new Date(Date.now() + token.expiresIn * 1000)
+      : undefined;
 
     await db.account.upsert({
-      where: { id: account.id },
+      where: { id: accountId },
       update: {
         userId,
         accessToken: token.accessToken,
-        refreshToken: token.refreshToken,
+        refreshToken: null,
         email: account.email,
         name: account.name,
         expiresAt,
+        provider: "Nylas",
       },
       create: {
-        id: account.id,
+        id: accountId,
         userId,
         accessToken: token.accessToken,
-        refreshToken: token.refreshToken,
+        refreshToken: null,
         email: account.email,
         name: account.name,
-        providerAccountId: account.id,
+        providerAccountId: accountId,
         expiresAt,
+        provider: "Nylas",
       },
     });
 
     // Redirect to dashboard upon successful connection
     return NextResponse.redirect(new URL("/dashboard", req.url));
   } catch (error) {
-    console.error("Aurinko callback error:", error);
-    return NextResponse.json({ error: "Failed to exchange code" }, { status: 500 });
+    console.error("Nylas callback error:", error);
+    return NextResponse.json(
+      { error: "Failed to exchange code" },
+      { status: 500 }
+    );
   }
 };

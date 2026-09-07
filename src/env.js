@@ -11,10 +11,10 @@ export const env = createEnv({
     DIRECT_URL: z.string().url().optional(),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
-    // Aurinko Credentials
-    AURINKO_CLIENT_ID: z.string().min(1, "AURINKO_CLIENT_ID is required"),
-    AURINKO_CLIENT_SECRET: z.string().min(1, "AURINKO_CLIENT_SECRET is required"),
-    AURINKO_SIGNIN_SECRET: z.string().min(1, "AURINKO_SIGNIN_SECRET is required"),
+    // Nylas Credentials & Configuration
+    NYLAS_CLIENT_ID: z.string().min(1, "NYLAS_CLIENT_ID is required"),
+    NYLAS_API_KEY: z.string().min(1, "NYLAS_API_KEY is required"),
+    NYLAS_API_URI: z.string().url("NYLAS_API_URI must be a valid URL").default("https://api.us.nylas.com"),
 
     // OpenAI Credentials & Configuration
     OPENAI_API_KEY: z.string().optional(),
@@ -46,9 +46,9 @@ export const env = createEnv({
     DIRECT_URL: process.env.DIRECT_URL,
     NODE_ENV: process.env.NODE_ENV,
 
-    AURINKO_CLIENT_ID: process.env.AURINKO_CLIENT_ID,
-    AURINKO_CLIENT_SECRET: process.env.AURINKO_CLIENT_SECRET,
-    AURINKO_SIGNIN_SECRET: process.env.AURINKO_SIGNIN_SECRET,
+    NYLAS_CLIENT_ID: process.env.NYLAS_CLIENT_ID,
+    NYLAS_API_KEY: process.env.NYLAS_API_KEY,
+    NYLAS_API_URI: process.env.NYLAS_API_URI,
 
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,

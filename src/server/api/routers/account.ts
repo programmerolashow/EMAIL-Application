@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { MailService } from "@/server/services/mail-service";
-import { getAurinkoAuthUrl } from "@/lib/aurinko";
+import { getNylasAuthUrl } from "@/lib/nylas";
 
 export const accountRouter = createTRPCRouter({
   /**
@@ -12,11 +12,11 @@ export const accountRouter = createTRPCRouter({
   }),
 
   /**
-   * Generates a secure Aurinko OAuth authorization URL for Google or Office365.
+   * Generates a secure Nylas OAuth authorization URL for Google or Office365.
    */
   getAuthUrl: protectedProcedure
     .input(z.object({ serviceType: z.enum(["Google", "Office365"]) }))
     .mutation(async ({ input }) => {
-      return getAurinkoAuthUrl(input.serviceType);
+      return getNylasAuthUrl(input.serviceType);
     }),
 });
