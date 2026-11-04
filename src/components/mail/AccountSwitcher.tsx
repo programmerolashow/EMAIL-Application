@@ -24,6 +24,15 @@ export function AccountSwitcher({
   onSelectAccount,
 }: AccountSwitcherProps) {
   const { data: accounts, isLoading } = api.account.getAccounts.useQuery();
+  const utils = api.useUtils();
+  const disconnect = api.account.removeAccount.useMutation({
+    onSuccess: (_res, vars) => {
+      if (selectedAccountId === vars.accountId) onSelectAccount(undefined);
+      void utils.account.getAccounts.invalidate();
+      void utils.mail.invalidate();
+    },
+    onError: (err) => window.alert(err.message),
+  });
   const [connecting, setConnecting] = useState(false);
 
   const selectedAccount = accounts?.find((acc) => acc.id === selectedAccountId);
@@ -89,7 +98,29 @@ export function AccountSwitcher({
                 <span className="font-medium text-slate-800 truncate">{acc.name || acc.email}</span>
                 <span className="text-xs text-slate-400 truncate">{acc.email}</span>
               </div>
-              {selectedAccountId === acc.id && <Check className="h-4 w-4 text-blue-600" />}
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedAccountId === acc.id && <Check className="h-4 w-4 text-blue-600" />}
+                <button
+                  type="button"
+                  disabled={disconnect.isPending}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (
+                      window.confirm(
+                        `Disconnect ${acc.email}? The app stops syncing it and its access is revoked. Your emails stay in the mailbox itself.`
+                      )
+                    ) {
+                      disconnect.mutate({ accountId: acc.id });
+                    }
+                  }}
+                  className="rounded px-1.5 py-0.5 text-[0.6875rem] font-medium text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  aria-label={`Disconnect ${acc.email}`}
+                >
+                  Disconnect
+                </button>
+              </div>
             </DropdownMenuItem>
           ))
         ) : (

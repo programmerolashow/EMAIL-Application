@@ -41,6 +41,11 @@ export function ThreadView({
 }: ThreadViewProps) {
   // Collapsed message IDs set for managing long conversation feeds
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<string>>(new Set());
+  // Remote images (often tracking pixels) stay blocked until the user allows them per message.
+  const [imagesAllowedFor, setImagesAllowedFor] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setImagesAllowedFor(new Set());
+  }, [thread?.id]);
 
   // Automatically collapse all older messages by default on new thread selection, keeping latest expanded
   useEffect(() => {
@@ -102,14 +107,8 @@ export function ThreadView({
    * Email HTML is untrusted: strip scripts, event handlers (onerror, onclick...), forms and
    * iframes before rendering, and open links in a new tab. Plain-text bodies keep line breaks.
    */
-  const renderBody = (body: string) => {
-    const isHtml = /<[a-z][\s\S]*>/i.test(body);
-    const html = isHtml ? body : escapeHtml(body).replace(/\n/g, "<br/>");
-    return DOMPurify.sanitize(html, {
-      FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed"],
-      ADD_ATTR: ["target"],
-    });
-  };
+  const renderBody = (message: NormalizedMessage) =>
+    sanitizeEmailHtml(message.body, imagesAllowedFor.has(message.id));
 
   const formatFileSize = (bytes: number) => {
     if (!bytes) return "";
@@ -314,10 +313,31 @@ export function ThreadView({
               {!isCollapsed && (
                 <div className="border-t border-slate-100 p-3 sm:p-6 space-y-4">
                   {/* Message Body Content */}
-                  <div
-                    className="prose prose-slate max-w-none overflow-x-auto break-words text-sm leading-relaxed text-slate-800 font-sans [&_img]:h-auto [&_img]:max-w-full [&_table]:max-w-full"
-                    dangerouslySetInnerHTML={{ __html: renderBody(message.body) }}
-                  />
+                  {(() => {
+                    const { html, blocked } = renderBody(message);
+                    return (
+                      <>
+                        {blocked > 0 && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            <span>Images are hidden to protect your privacy (they can tell the sender you opened this).</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setImagesAllowedFor((prev) => new Set(prev).add(message.id))
+                              }
+                              className="font-semibold text-blue-600 hover:text-blue-700"
+                            >
+                              Show images
+                            </button>
+                          </div>
+                        )}
+                        <div
+                          className="prose prose-slate max-w-none overflow-x-auto break-words text-sm leading-relaxed text-slate-800 font-sans [&_img]:h-auto [&_img]:max-w-full [&_table]:max-w-full"
+                          dangerouslySetInnerHTML={{ __html: html }}
+                        />
+                      </>
+                    );
+                  })()}
 
                   {/* Attachments Section */}
                   {message.attachments && message.attachments.length > 0 && (
@@ -394,4 +414,50 @@ function shortDate(value: string): string {
   } catch {
     return value;
   }
+}
+
+const REMOTE_URL = /^(https?:)?\/\//i;
+const CSS_URL = /url\(\s*['"]?\s*(https?:)?\/\/[^)]*\)/gi;
+let blockedCount = 0;
+let blockImages = true;
+
+// One-time DOMPurify hooks: links open in a new tab without leaking the app URL, and remote
+// images / backgrounds are removed unless the user chose to show them.
+if (typeof window !== "undefined" && !(DOMPurify as { __emailHooks?: boolean }).__emailHooks) {
+  (DOMPurify as { __emailHooks?: boolean }).__emailHooks = true;
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.tagName === "A" && node.hasAttribute("href")) {
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", "noopener noreferrer nofollow");
+    }
+    if (!blockImages) return;
+    for (const attr of ["src", "srcset", "background", "poster"]) {
+      const value = node.getAttribute(attr);
+      if (value && (attr === "srcset" || REMOTE_URL.test(value.trim()))) {
+        node.removeAttribute(attr);
+        blockedCount++;
+      }
+    }
+    const style = node.getAttribute("style");
+    if (style && CSS_URL.test(style)) {
+      node.setAttribute("style", style.replace(CSS_URL, "none"));
+      blockedCount++;
+    }
+    CSS_URL.lastIndex = 0;
+  });
+}
+
+/** Sanitizes untrusted email HTML. Returns the safe HTML and how many remote images it hid. */
+function sanitizeEmailHtml(body: string, allowImages: boolean): { html: string; blocked: number } {
+  // Without a DOM (server render) DOMPurify cannot sanitize, so render nothing rather than raw HTML.
+  if (typeof window === "undefined" || !DOMPurify.isSupported) return { html: "", blocked: 0 };
+  const isHtml = /<[a-z][\s\S]*>/i.test(body);
+  const source = isHtml ? body : escapeHtml(body).replace(/\n/g, "<br/>");
+  blockedCount = 0;
+  blockImages = !allowImages;
+  const html = DOMPurify.sanitize(source, {
+    FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed", "link", "meta", "base"],
+    ADD_ATTR: ["target"],
+  });
+  return { html, blocked: blockedCount };
 }

@@ -4,5 +4,5 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  return NextResponse.redirect(new URL("/SignIn", req.url), { status: 302 });
+  return NextResponse.redirect(new URL("/sign-in", req.url), { status: 302 });
 }

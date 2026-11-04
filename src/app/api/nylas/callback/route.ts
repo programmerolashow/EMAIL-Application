@@ -1,8 +1,9 @@
-import { exchangeCodeForAccessToken, getAccount } from "@/lib/nylas";
+import { deleteGrant, exchangeCodeForAccessToken, getAccount } from "@/lib/nylas";
 import { db } from "@/server/db";
 import { createClient } from "@/lib/supabase/server";
 import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
 import { MailService } from "@/server/services/mail-service";
+import { getMailboxAllowance, mailboxLimitMessage } from "@/server/services/plans";
 import { type NextRequest, NextResponse } from "next/server";
 
 export const GET = async (req: NextRequest) => {
@@ -63,11 +64,24 @@ export const GET = async (req: NextRequest) => {
       return backToDashboard({ connect_error: "This mailbox is already linked to another user." });
     }
 
+    // Plan limit (authoritative check). Reconnecting a mailbox that is already linked is always
+    // allowed; a new one over the limit is refused and its fresh grant revoked at Nylas so it
+    // doesn't sync or count toward billing.
+    if (!existing) {
+      const allowance = await getMailboxAllowance(userId);
+      if (!allowance.canLinkAnother) {
+        await deleteGrant(accountId).catch((err: unknown) =>
+          console.error("Failed to revoke over-limit Nylas grant:", err)
+        );
+        return backToDashboard({ connect_error: mailboxLimitMessage(allowance) });
+      }
+    }
+
     await db.account.upsert({
       where: { id: accountId },
       update: {
-        // Kept for reference only; never used to call Nylas.
-        accessToken: token.accessToken || accountId,
+        // No token is stored: mail is accessed through the grant id + server API key.
+        accessToken: "",
         refreshToken: null,
         email: account.email,
         name: account.name,
@@ -78,7 +92,7 @@ export const GET = async (req: NextRequest) => {
       create: {
         id: accountId,
         userId,
-        accessToken: token.accessToken || accountId,
+        accessToken: "",
         refreshToken: null,
         email: account.email,
         name: account.name,

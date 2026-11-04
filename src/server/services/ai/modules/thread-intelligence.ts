@@ -1,5 +1,5 @@
 import "server-only";
-import { EmailService } from "@/server/services/email-service";
+import { MailService } from "@/server/services/mail-service";
 import type { EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
 import { AIService } from "../ai-service";
@@ -11,7 +11,7 @@ export class ThreadIntelligenceService {
     threadId: string,
     accountId?: string
   ): Promise<ThreadIntelligenceResult> {
-    const thread = await EmailService.getThread(userId, threadId, accountId);
+    const thread = await MailService.getThread(userId, threadId, accountId);
     return this.analyze(thread);
   }
 

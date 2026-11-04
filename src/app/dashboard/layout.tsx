@@ -14,7 +14,7 @@ export default async function DashboardLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/SignIn");
+    redirect("/sign-in");
   }
 
   await syncSupabaseUserToDatabase(user).catch(() => null);

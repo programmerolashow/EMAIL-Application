@@ -1,5 +1,5 @@
 import "server-only";
-import { EmailService } from "@/server/services/email-service";
+import { MailService } from "@/server/services/mail-service";
 import type { EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
 import { AIService } from "../ai-service";
@@ -27,9 +27,9 @@ export class ReplyGenerator {
     prompt?: string,
     accountId?: string
   ): Promise<GeneratedReplyDraft> {
-    const message = await EmailService.getMessage(userId, messageId, accountId);
+    const message = await MailService.getMessage(userId, messageId, accountId);
     const thread = message.threadId
-      ? await EmailService.getThread(userId, message.threadId, accountId)
+      ? await MailService.getThread(userId, message.threadId, accountId)
       : null;
     const instruction = prompt ?? "Please draft a helpful response.";
     return this.generate(thread, instruction, tone);

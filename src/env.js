@@ -33,10 +33,6 @@ export const env = createEnv({
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().default("gpt-4o-mini"),
 
-    // Svix Credentials & Webhook Secrets
-    SVIX_TOKEN: z.string().optional(),
-    SVIX_APP_ID: z.string().optional(),
-    SVIX_WEBHOOK_SECRET: z.string().optional(),
 
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   },
@@ -68,9 +64,6 @@ export const env = createEnv({
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
 
-    SVIX_TOKEN: process.env.SVIX_TOKEN,
-    SVIX_APP_ID: process.env.SVIX_APP_ID,
-    SVIX_WEBHOOK_SECRET: process.env.SVIX_WEBHOOK_SECRET,
 
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
 

@@ -32,13 +32,15 @@ function isValidSignature(rawBody: string, signature: string | null, secret: str
 export async function POST(request: Request) {
   const rawBody = await request.text();
 
-  if (env.NYLAS_WEBHOOK_SECRET) {
-    if (!isValidSignature(rawBody, request.headers.get("x-nylas-signature"), env.NYLAS_WEBHOOK_SECRET)) {
-      console.warn("⚠️ Rejecting Nylas webhook: invalid signature.");
-      return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
-    }
-  } else {
-    console.warn("⚠️ NYLAS_WEBHOOK_SECRET is not set; Nylas webhook signatures are NOT being verified.");
+  // Every delivery must be signed. Without a configured secret nothing can be verified, so all
+  // deliveries are refused instead of trusting unsigned requests from anyone on the internet.
+  if (!env.NYLAS_WEBHOOK_SECRET) {
+    console.error("❌ Rejecting Nylas webhook: NYLAS_WEBHOOK_SECRET is not configured.");
+    return NextResponse.json({ error: "Webhook verification is not configured." }, { status: 503 });
+  }
+  if (!isValidSignature(rawBody, request.headers.get("x-nylas-signature"), env.NYLAS_WEBHOOK_SECRET)) {
+    console.warn("⚠️ Rejecting Nylas webhook: missing or invalid signature.");
+    return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
   }
 
   let eventPayload: Record<string, unknown>;

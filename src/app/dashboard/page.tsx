@@ -285,6 +285,20 @@ export default function DashboardPage() {
       void utils.mail.getFolders.invalidate();
     },
   });
+  // Once the full conversation loads, mark every unread message in it read (not just the newest).
+  const markedReadRef = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    if (activeFolder === "drafts" || !threadDetail.data) return;
+    for (const m of threadDetail.data.messages) {
+      const key = `${m.accountId ?? ""}:${m.id}`;
+      if (m.isRead || !m.accountId || markedReadRef.current.has(key)) continue;
+      markedReadRef.current.add(key);
+      markRead.mutate({ messageId: m.id, isRead: true, accountId: m.accountId });
+    }
+    // markRead is stable enough for this; re-running on every render would re-mark.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadDetail.data, activeFolder]);
+
   const handleSelectThread = (thread: EmailThread) => {
     const latest = thread.latestMessage;
     // Drafts open in the editor, like Gmail / Outlook, instead of the read-only viewer.

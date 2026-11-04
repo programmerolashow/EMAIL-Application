@@ -257,8 +257,19 @@ export function ComposeModal({
   initialDraftId,
   replyToMessageId,
   threadId,
-  accountId,
+  accountId: accountIdProp,
 }: ComposeModalProps) {
+  // "From" mailbox. Replies and existing drafts are tied to their mailbox; a new email can pick
+  // any connected account that still works.
+  const fromAccountsQuery = api.account.getAccounts.useQuery(undefined, { enabled: isOpen });
+  const fromAccounts = (fromAccountsQuery.data ?? []).filter((a) => a.status !== "invalid");
+  const [fromAccountId, setFromAccountId] = useState<string | undefined>(accountIdProp);
+  useEffect(() => {
+    if (isOpen) setFromAccountId(accountIdProp);
+  }, [isOpen, accountIdProp]);
+  const accountId = fromAccountId ?? accountIdProp ?? fromAccounts[0]?.id;
+  const fromLocked = Boolean(replyToMessageId ?? initialDraftId);
+
   // Message fields
   const [to, setTo] = useState(initialTo);
   const [cc, setCc] = useState("");
@@ -835,8 +846,10 @@ export function ComposeModal({
       try {
         result = await generateDraftMutation.mutateAsync({ instruction, threadId, accountId });
       } catch (err) {
-        // The thread may not be fetchable (e.g. a message without a provider thread); retry without context.
-        if (!threadId) throw err;
+        // The thread may not be fetchable (e.g. a message without a provider thread); retry without
+        // context. Never retry a limit / configuration error: it would fail the same way.
+        const code = (err as { data?: { code?: string } } | null)?.data?.code;
+        if (!threadId || code === "TOO_MANY_REQUESTS" || code === "PRECONDITION_FAILED") throw err;
         result = await generateDraftMutation.mutateAsync({ instruction, accountId });
       }
 
@@ -854,7 +867,7 @@ export function ComposeModal({
       toast.success("AI draft inserted. Review it before sending.");
     } catch (err) {
       console.error("[ComposeModal] AI generate failed:", err);
-      toast.error("Couldn't generate a draft right now. Please try again.");
+      toast.error(getErrorMessage(err, "Couldn't generate a draft right now. Please try again."));
     } finally {
       setAiAction(null);
     }
@@ -879,7 +892,7 @@ export function ComposeModal({
       toast.success("Text rewritten. You can undo this.");
     } catch (err) {
       console.error("[ComposeModal] AI rewrite failed:", err);
-      toast.error("Couldn't rewrite the text right now. Please try again.");
+      toast.error(getErrorMessage(err, "Couldn't rewrite the text right now. Please try again."));
     } finally {
       setAiAction(null);
     }
@@ -996,6 +1009,41 @@ export function ComposeModal({
             {isDragging && (
               <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/90 text-sm font-medium text-blue-700">
                 Drop files to attach
+              </div>
+            )}
+
+            {/* From (only when there is a choice) */}
+            {fromAccounts.length > 1 && (
+              <div>
+                <label htmlFor="compose-from" className={`${fieldLabel} mb-1`}>
+                  From
+                </label>
+                <select
+                  id="compose-from"
+                  value={accountId ?? ""}
+                  disabled={fromLocked || isSending}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    // An autosaved draft lives in the old mailbox: remove it there; the next
+                    // autosave creates it in the newly selected mailbox.
+                    const oldDraftId = draftIdRef.current;
+                    if (oldDraftId && accountId && next !== accountId) {
+                      void deleteDraftMutation
+                        .mutateAsync({ draftId: oldDraftId, accountId })
+                        .catch((err: unknown) => console.error("[ComposeModal] Old draft cleanup failed:", err));
+                      draftIdRef.current = undefined;
+                    }
+                    setFromAccountId(next);
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 disabled:bg-slate-50 disabled:text-slate-500"
+                  title={fromLocked ? "Replies and drafts are sent from their own mailbox." : undefined}
+                >
+                  {fromAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 

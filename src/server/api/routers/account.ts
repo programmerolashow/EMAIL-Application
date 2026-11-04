@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { MailService } from "@/server/services/mail-service";
 import { getNylasAuthUrl } from "@/lib/nylas";
+import { assertCanLinkMailbox, getMailboxAllowance } from "@/server/services/plans";
 
 export const accountRouter = createTRPCRouter({
   /**
@@ -16,9 +17,22 @@ export const accountRouter = createTRPCRouter({
    */
   getAuthUrl: protectedProcedure
     .input(z.object({ serviceType: z.enum(["Google", "Office365"]) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await assertCanLinkMailbox(ctx.auth.userId);
       return getNylasAuthUrl(input.serviceType);
     }),
+
+  /** Current plan and how many mailboxes it allows (for the UI). */
+  getPlan: protectedProcedure.query(async ({ ctx }) => {
+    const a = await getMailboxAllowance(ctx.auth.userId);
+    return {
+      planId: a.plan.id,
+      planName: a.plan.name,
+      maxMailboxes: a.plan.maxMailboxes,
+      linked: a.linked,
+      canLinkAnother: a.canLinkAnother,
+    };
+  }),
 
   /**
    * Unlinks a mailbox from this app (e.g. a stale row Nylas no longer recognises). Only the

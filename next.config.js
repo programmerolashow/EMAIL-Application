@@ -24,11 +24,13 @@ const config = {
     // `next dev` writes to its own folder so a production build can never wipe the
     // files of a running dev server (which shows up as a 500 on every page).
     distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
-    typescript: {
-        ignoreBuildErrors: true,
-    },
-    eslint: {
-        ignoreDuringBuilds: true,
+    // Type and lint errors fail the build, so broken code never reaches Vercel.
+    // One canonical address per auth page; the old capitalised URLs keep working via redirect.
+    async redirects() {
+        return [
+            { source: "/SignIn/:path*", destination: "/sign-in", permanent: true },
+            { source: "/SignUp/:path*", destination: "/sign-up", permanent: true },
+        ];
     },
     experimental: {
         // Import only the modules actually used from these large packages, instead of compiling

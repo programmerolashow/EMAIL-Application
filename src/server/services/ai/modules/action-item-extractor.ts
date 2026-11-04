@@ -1,5 +1,5 @@
 import "server-only";
-import { EmailService } from "@/server/services/email-service";
+import { MailService } from "@/server/services/mail-service";
 import type { NormalizedMessage, EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
 import { AIService } from "../ai-service";
@@ -13,8 +13,8 @@ export class ActionItemExtractor {
     accountId?: string
   ): Promise<ExtractedActionItem[]> {
     const target = isThread
-      ? await EmailService.getThread(userId, emailOrThreadId, accountId)
-      : await EmailService.getMessage(userId, emailOrThreadId, accountId);
+      ? await MailService.getThread(userId, emailOrThreadId, accountId)
+      : await MailService.getMessage(userId, emailOrThreadId, accountId);
     return this.extract(target);
   }
 
