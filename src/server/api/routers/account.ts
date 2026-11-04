@@ -19,4 +19,14 @@ export const accountRouter = createTRPCRouter({
     .mutation(async ({ input }) => {
       return getNylasAuthUrl(input.serviceType);
     }),
+
+  /**
+   * Unlinks a mailbox from this app (e.g. a stale row Nylas no longer recognises). Only the
+   * user's own row is touched; mail stays untouched at Google / Microsoft.
+   */
+  removeAccount: protectedProcedure
+    .input(z.object({ accountId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      return MailService.removeAccount(ctx.auth.userId, input.accountId);
+    }),
 });

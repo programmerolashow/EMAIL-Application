@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthError } from "@/lib/supabase/auth-errors";
-import { env } from "@/env";
 import { GoogleAuthButton, AuthDivider } from "@/components/auth/GoogleAuthButton";
 import {
   AuthShell,
@@ -44,7 +43,8 @@ export default function SignUpPage() {
       const nameParts = fullName.trim().split(/\s+/);
       const firstName = nameParts[0] ?? "User";
       const lastName = nameParts.slice(1).join(" ");
-      const baseUrl = env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+      // Always the site the user is on, so a localhost sign-up never links to production.
+      const baseUrl = window.location.origin;
 
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,

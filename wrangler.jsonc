@@ -13,6 +13,7 @@
   // Non-secret runtime vars. Secrets go in with `npx wrangler secret put NAME`
   // (DATABASE_URL, NYLAS_API_KEY, NYLAS_CLIENT_ID, NYLAS_WEBHOOK_SECRET, OPENAI_API_KEY, SVIX_*).
   "vars": {
-    "NYLAS_API_URI": "https://api.us.nylas.com"
+    "NYLAS_API_URI": "https://api.us.nylas.com",
+    "NEXT_PUBLIC_APP_URL": "https://email-application.olanrewajuillias.workers.dev"
   }
 }

@@ -80,24 +80,32 @@ export function AICopilotPanel({
   };
 
   // Queries & Mutations
+  // Every AI call must name the mailbox the email belongs to; without it the server would fall
+  // back to an arbitrary connected account and Nylas rejects the lookup.
+  const accountId =
+    selectedMessage?.accountId ?? thread?.latestMessage?.accountId ?? thread?.messages[0]?.accountId;
+  // Drafts and single messages have no provider thread; summarize those as a message instead.
+  const threadId = thread?.latestMessage?.threadId || undefined;
+  const messageId = selectedMessage?.id ?? thread?.latestMessage?.id;
+
   const threadSummaryQuery = api.ai.summarizeThread.useQuery(
-    { threadId: thread?.id ?? "" },
-    { enabled: Boolean(thread?.id) && activeTab === "summarize" }
+    { threadId: threadId ?? "", accountId },
+    { enabled: Boolean(threadId) && activeTab === "summarize", retry: 1 }
   );
 
   const emailSummaryQuery = api.ai.summarizeEmail.useQuery(
-    { messageId: selectedMessage?.id ?? "" },
-    { enabled: !thread?.id && Boolean(selectedMessage?.id) && activeTab === "summarize" }
+    { messageId: messageId ?? "", accountId },
+    { enabled: !threadId && Boolean(messageId) && activeTab === "summarize", retry: 1 }
   );
 
   const threadIntelligenceQuery = api.ai.getThreadIntelligence.useQuery(
-    { threadId: thread?.id ?? "" },
-    { enabled: Boolean(thread?.id) && activeTab === "intelligence" }
+    { threadId: threadId ?? "", accountId },
+    { enabled: Boolean(threadId) && activeTab === "intelligence", retry: 1 }
   );
 
   const actionItemsQuery = api.ai.extractActionItems.useQuery(
-    { emailOrThreadId: thread?.id ?? selectedMessage?.id ?? "", isThread: Boolean(thread?.id) },
-    { enabled: Boolean(thread?.id ?? selectedMessage?.id) && activeTab === "action-items" }
+    { emailOrThreadId: threadId ?? messageId ?? "", isThread: Boolean(threadId), accountId },
+    { enabled: Boolean(threadId ?? messageId) && activeTab === "action-items", retry: 1 }
   );
 
   const generateReplyMutation = api.ai.generateReply.useMutation();
@@ -108,9 +116,9 @@ export function AICopilotPanel({
   const isSummaryError = threadSummaryQuery.isError || emailSummaryQuery.isError;
   const summaryError = threadSummaryQuery.error ?? emailSummaryQuery.error;
   const refetchSummary = () => {
-    if (thread?.id) {
+    if (threadId) {
       void threadSummaryQuery.refetch();
-    } else if (selectedMessage?.id) {
+    } else if (messageId) {
       void emailSummaryQuery.refetch();
     }
   };
@@ -124,6 +132,7 @@ export function AICopilotPanel({
         messageId: msgId,
         tone: selectedTone,
         prompt: replyPrompt,
+        accountId,
       });
       setGeneratedReplyResult({ body: res.body, subject: res.subject });
     } catch (err) {

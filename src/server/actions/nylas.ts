@@ -10,6 +10,6 @@ export const getNylasAuthUrlAction = async (serviceType: "Google" | "Office365")
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const authUrl = getNylasAuthUrl(serviceType);
+  const authUrl = await getNylasAuthUrl(serviceType);
   return authUrl;
 };
