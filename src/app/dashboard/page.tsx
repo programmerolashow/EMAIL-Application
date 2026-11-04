@@ -12,7 +12,6 @@ import { ThreadList } from "@/components/mail/ThreadList";
 import { ThreadView } from "@/components/mail/ThreadView";
 import { AICopilotPanel } from "@/components/mail/AICopilotPanel";
 import { ComposeModal } from "@/components/mail/ComposeModal";
-import { getNylasAuthUrlAction } from "@/server/actions/nylas";
 import {
   Mail,
   Inbox,
@@ -133,12 +132,15 @@ export default function DashboardPage() {
       void utils.mail.invalidate();
     },
   });
+  const planQuery = api.account.getPlan.useQuery();
+  const getAuthUrl = api.account.getAuthUrl.useMutation();
   const handleConnect = async (serviceType: "Google" | "Office365") => {
     try {
       setConnecting(true);
-      window.location.href = await getNylasAuthUrlAction(serviceType);
+      window.location.href = await getAuthUrl.mutateAsync({ serviceType });
     } catch (err) {
       console.error("Failed to start account connection:", err);
+      setConnectError(err instanceof Error ? err.message : "Couldn't start connecting the account.");
       setConnecting(false);
     }
   };
@@ -579,8 +581,19 @@ export default function DashboardPage() {
           )}
         </nav>
 
-        {/* User Footer / Sign Out */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/60">
+        {/* User Footer / Plans / Sign Out */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/60 space-y-1">
+          <Link
+            href="/dashboard/plans"
+            className="flex w-full items-center justify-between rounded-md px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-white"
+          >
+            <span>Plans</span>
+            {planQuery.data && (
+              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[0.625rem] text-slate-300">
+                {planQuery.data.planName}
+              </span>
+            )}
+          </Link>
           <form action="/api/auth/signout" method="post">
             <Button
               type="submit"
@@ -599,7 +612,7 @@ export default function DashboardPage() {
       <main
         className={`${
           selectedThread ? "hidden md:flex" : "flex"
-        } w-full min-w-0 flex-col bg-white md:w-80 md:shrink-0 md:border-r md:border-slate-200 lg:w-[22rem] 2xl:w-[26rem]`}
+        } w-full min-w-0 flex-col bg-white md:w-[clamp(15rem,34vw,19rem)] md:shrink-0 md:border-r md:border-slate-200 lg:w-[clamp(16rem,24vw,21rem)]`}
       >
         <div className="h-12 shrink-0 border-b border-slate-100 px-3 sm:px-4 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
@@ -668,7 +681,17 @@ export default function DashboardPage() {
         )}
         {connectError && (
           <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800 flex justify-between gap-2">
-            <span>{connectError}</span>
+            <span>
+              {connectError}
+              {/\bplan\b/i.test(connectError) && (
+                <>
+                  {" "}
+                  <Link href="/dashboard/plans" className="font-semibold underline">
+                    See plans
+                  </Link>
+                </>
+              )}
+            </span>
             <button onClick={() => setConnectError(null)} className="font-semibold">
               Dismiss
             </button>
@@ -770,7 +793,7 @@ export default function DashboardPage() {
 
         {/* AI Copilot: docked on wide screens */}
         {showCopilot && isWide && (
-          <aside className="flex w-80 shrink-0 flex-col 2xl:w-96">
+          <aside className="flex w-[clamp(16rem,21vw,20rem)] shrink-0 flex-col">
             <AICopilotPanel
               thread={displayedThread}
               selectedMessage={displayedThread?.latestMessage ?? null}

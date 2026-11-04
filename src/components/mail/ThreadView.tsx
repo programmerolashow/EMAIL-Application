@@ -332,7 +332,7 @@ export function ThreadView({
                           </div>
                         )}
                         <div
-                          className="prose prose-slate max-w-none overflow-x-auto break-words text-sm leading-relaxed text-slate-800 font-sans [&_img]:h-auto [&_img]:max-w-full [&_table]:max-w-full"
+                          className="prose prose-slate max-w-none overflow-x-hidden break-words text-sm leading-relaxed text-slate-800 font-sans [&_*]:!max-w-full [&_table]:!w-full [&_table]:!table-fixed [&_td]:break-words [&_img]:!h-auto [&_pre]:whitespace-pre-wrap"
                           dangerouslySetInnerHTML={{ __html: html }}
                         />
                       </>

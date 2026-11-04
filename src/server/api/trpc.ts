@@ -10,7 +10,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { UserFacingError } from "@/server/lib/errors";
+import { UserFacingError, describeKnownError } from "@/server/lib/errors";
 
 import { db } from "@/server/db";
 
@@ -57,14 +57,18 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
     // UserFacingErrors (incl. Nylas / OpenAI errors with their actual message) are shown as-is.
     // Unexpected internal errors are logged server-side and never leak raw details to users.
     const userFacing = error.cause instanceof UserFacingError ? error.cause : null;
+    const known = userFacing ? undefined : describeKnownError(error.cause);
+    if (known) console.error("[tRPC] Infrastructure error:", error.cause);
     const hideInternal =
-      !userFacing && error.code === "INTERNAL_SERVER_ERROR" && process.env.NODE_ENV === "production";
+      !userFacing && !known && error.code === "INTERNAL_SERVER_ERROR" && process.env.NODE_ENV === "production";
     if (hideInternal) console.error("[tRPC] Internal error:", error);
     return {
       ...shape,
       message: userFacing
         ? userFacing.message
-        : hideInternal
+        : known
+          ? known
+          : hideInternal
           ? "Something went wrong on our side. Please try again."
           : shape.message,
       data: {

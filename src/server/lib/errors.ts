@@ -113,3 +113,18 @@ export function toUserFacing(error: unknown, fallback: string): UserFacingError 
   if (error instanceof UserFacingError) return error;
   return new UserFacingError(userMessage(error, fallback), "INTERNAL_SERVER_ERROR", { cause: error });
 }
+
+/**
+ * Plain-language message for known infrastructure errors that aren't UserFacingErrors.
+ * P2021 / P2022 = the database schema is behind the code (a table / column is missing).
+ */
+export function describeKnownError(error: unknown): string | undefined {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  if (code === "P2021" || code === "P2022") {
+    return "The database hasn't been updated for this feature yet (a table or column is missing). Apply the latest schema with `npx prisma db push`, then try again.";
+  }
+  if (code === "P1001" || code === "P1002") {
+    return "Couldn't reach the database. Try again in a moment.";
+  }
+  return undefined;
+}

@@ -286,9 +286,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Summarization Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {summaryError?.message ?? "Unable to generate email summary."}
                     </span>
                   </div>
@@ -401,9 +401,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Intelligence Analysis Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {threadIntelligenceQuery.error?.message ?? "Unable to analyze thread intelligence."}
                     </span>
                   </div>
@@ -604,9 +604,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Reply Generation Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {generateReplyMutation.error?.message ?? "Unable to generate smart reply draft."}
                     </span>
                   </div>
@@ -729,9 +729,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Rewrite Transformation Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {rewriteDraftMutation.error?.message ?? "Unable to rewrite draft content."}
                     </span>
                   </div>
@@ -804,9 +804,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Action Item Extraction Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {actionItemsQuery.error?.message ?? "Unable to extract action items."}
                     </span>
                   </div>

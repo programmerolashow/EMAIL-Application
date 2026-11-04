@@ -2,29 +2,9 @@ import "server-only";
 import { db } from "@/server/db";
 import { UserFacingError } from "@/server/lib/errors";
 
-/**
- * Plan catalogue. The plan a user is on lives in `User.plan` (DB), never in env vars.
- * `maxMailboxes: null` means unlimited. Paid tiers are display-only until payments are added;
- * a user's plan is changed directly in the database.
- *
- * Tier names, prices and feature lists for paid plans are filled in from the Qorelly reference.
- */
-export interface PlanDefinition {
-  id: string;
-  name: string;
-  maxMailboxes: number | null;
-}
+import { planFor, type PlanDefinition } from "@/lib/plans";
 
-export const PLANS: Record<string, PlanDefinition> = {
-  free: { id: "free", name: "Free", maxMailboxes: 1 },
-};
-
-export const DEFAULT_PLAN_ID = "free";
-
-export function planFor(planId: string | null | undefined): PlanDefinition {
-  return PLANS[planId ?? DEFAULT_PLAN_ID] ?? PLANS[DEFAULT_PLAN_ID]!;
-}
-
+/** The plan a user is on lives in `User.plan` (DB). Paid tiers are display-only until payments exist. */
 export interface MailboxAllowance {
   plan: PlanDefinition;
   linked: number;
