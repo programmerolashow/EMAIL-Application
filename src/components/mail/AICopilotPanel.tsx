@@ -175,11 +175,11 @@ export function AICopilotPanel({
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900">AI Copilot</h3>
-            <p className="text-[11px] text-slate-500">Context Builder & OpenAI v4</p>
+            <p className="text-[0.6875rem] text-slate-500">Context Builder & OpenAI v4</p>
           </div>
         </div>
 
-        <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 font-medium">
+        <Badge variant="outline" className="text-[0.625rem] bg-blue-50 text-blue-700 border-blue-200 font-medium">
           GPT-4o Ready
         </Badge>
       </div>
@@ -224,7 +224,7 @@ export function AICopilotPanel({
                 <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <div className="text-center">
                   <p className="text-xs font-semibold text-slate-700">Summarizing conversation...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Context Builder trimming raw email payloads</p>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">Context Builder trimming raw email payloads</p>
                 </div>
               </div>
             ) : isSummaryError ? (
@@ -333,7 +333,7 @@ export function AICopilotPanel({
                 <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <div className="text-center">
                   <p className="text-xs font-semibold text-slate-700">Extracting thread intelligence...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Analyzing decisions, deliverables & timelines</p>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">Analyzing decisions, deliverables & timelines</p>
                 </div>
               </div>
             ) : threadIntelligenceQuery.isError ? (
@@ -425,7 +425,7 @@ export function AICopilotPanel({
                               <User className="h-3.5 w-3.5 text-blue-600" />
                               {item.person}
                             </span>
-                            <span className="text-slate-600 text-[11px] truncate max-w-[160px]">
+                            <span className="text-slate-600 text-[0.6875rem] truncate max-w-[10rem]">
                               {item.task}
                             </span>
                           </div>
@@ -724,7 +724,7 @@ export function AICopilotPanel({
                 <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <div className="text-center">
                   <p className="text-xs font-semibold text-slate-700">Extracting action items...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Scanning tasks, assigned owners & deadlines</p>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">Scanning tasks, assigned owners & deadlines</p>
                 </div>
               </div>
             ) : actionItemsQuery.isError ? (
@@ -792,7 +792,7 @@ export function AICopilotPanel({
                         {item.taskDescription ?? item.task}
                       </span>
                       <Badge
-                        className={`text-[10px] shrink-0 font-medium ${
+                        className={`text-[0.625rem] shrink-0 font-medium ${
                           item.priority === "High"
                             ? "bg-red-50 text-red-700 border-red-200"
                             : item.priority === "Medium"
@@ -804,7 +804,7 @@ export function AICopilotPanel({
                       </Badge>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between text-[0.6875rem] text-slate-500 pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-1">
                         <User className="h-3.5 w-3.5 text-blue-600" />
                         <span>{item.assignedOwner ?? item.owner ?? "Unassigned"}</span>

@@ -2,8 +2,8 @@ import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
 
 /**
- * True while `next build` runs. Server secrets (DATABASE_URL, NYLAS_*) only exist at runtime on
- * Cloudflare (`wrangler secret put`), so they are validated when the Worker starts, not at build.
+ * True while `next build` runs. Server secrets (DATABASE_URL, NYLAS_*) are validated when the
+ * server starts, so a build never fails just because a runtime-only secret is absent.
  * NEXT_PUBLIC_* values are checked separately in next.config.js because they are inlined at build.
  */
 const isBuildStep =
@@ -89,7 +89,7 @@ export const env = createEnv({
       formattedErrors
     );
     throw new Error(
-      `Invalid environment variables configuration:\n${formattedErrors}\nLocally, check your .env file. On Cloudflare, add them with "npx wrangler secret put NAME" (or Worker → Settings → Variables and Secrets) to ensure all required Nylas and database environment variables (NYLAS_CLIENT_ID, NYLAS_API_KEY, DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are set.`
+      `Invalid environment variables configuration:\n${formattedErrors}\nLocally, check your .env file. On Vercel, add them under Project → Settings → Environment Variables to ensure all required Nylas and database environment variables (NYLAS_CLIENT_ID, NYLAS_API_KEY, DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are set.`
     );
   },
 

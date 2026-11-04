@@ -2,16 +2,27 @@ import { env } from "@/env";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+
+/**
+ * pg currently treats sslmode=prefer/require/verify-ca as verify-full and warns that this will
+ * change (weaker libpq semantics) in pg v9. Pin the current, stricter behaviour explicitly so the
+ * connection stays fully verified and the warning goes away. Neon's certificates verify fine.
+ */
+const normalizeConnectionString = (raw: string): string => {
+  try {
+    const url = new URL(raw);
+    const mode = url.searchParams.get("sslmode");
+    if (mode && ["prefer", "require", "verify-ca"].includes(mode)) {
+      url.searchParams.set("sslmode", "verify-full");
+    }
+    return url.toString();
+  } catch {
+    return raw;
+  }
+};
 
 const createPrismaClient = () => {
-  const pool = new Pool({
-    connectionString: env.DATABASE_URL,
-    // On Cloudflare Workers each request gets its own client, so a tiny pool is enough.
-    max: isCloudflareWorker() ? 1 : 10,
-    // Never hand a Workers socket to a later request.
-    ...(isCloudflareWorker() ? { maxUses: 1 } : {}),
-  });
+  const pool = new Pool({ connectionString: normalizeConnectionString(env.DATABASE_URL) });
   const adapter = new PrismaPg(pool);
 
   return new PrismaClient({
@@ -20,44 +31,10 @@ const createPrismaClient = () => {
   });
 };
 
-type Client = ReturnType<typeof createPrismaClient>;
+const globalForPrisma = globalThis as unknown as {
+  prisma: ReturnType<typeof createPrismaClient> | undefined;
+};
 
-function isCloudflareWorker() {
-  return typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
-}
+export const db = globalForPrisma.prisma ?? createPrismaClient();
 
-/**
- * Cloudflare Workers forbid reusing a TCP socket opened by one request in another request
- * ("Cannot perform I/O on behalf of a different request"), so a module-level pg Pool breaks
- * there. On Workers we create one client per request, keyed on that request's
- * ExecutionContext; on Node (next dev / next start) we keep a single shared client.
- */
-const perRequest = new WeakMap<object, Client>();
-const globalForPrisma = globalThis as unknown as { prisma: Client | undefined };
-
-function resolveClient(): Client {
-  if (isCloudflareWorker()) {
-    try {
-      const { ctx } = getCloudflareContext();
-      let client = perRequest.get(ctx);
-      if (!client) {
-        client = createPrismaClient();
-        perRequest.set(ctx, client);
-      }
-      return client;
-    } catch {
-      // Outside a request (e.g. module init): fall through to a throwaway client.
-      return createPrismaClient();
-    }
-  }
-  return (globalForPrisma.prisma ??= createPrismaClient());
-}
-
-/** Drop-in Prisma client: `db.account.findMany(...)` resolves the right client per call. */
-export const db = new Proxy({} as Client, {
-  get(_target, prop) {
-    const client = resolveClient();
-    const value = Reflect.get(client, prop, client) as unknown;
-    return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(client) : value;
-  },
-});
+if (env.NODE_ENV !== "production") globalForPrisma.prisma = db;

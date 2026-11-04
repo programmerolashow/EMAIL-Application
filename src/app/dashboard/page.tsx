@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 "use client";
 
 import React, { useState } from "react";
@@ -29,6 +32,10 @@ import {
   PanelRightClose,
   PanelRightOpen,
   AlertTriangle,
+  Menu,
+  ArrowLeft,
+  PenSquare,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -61,8 +68,15 @@ export default function DashboardPage() {
   /** A mailbox role ("inbox", "spam", ...) or, for a single account, a label / folder id. */
   const [activeFolder, setActiveFolder] = useState<string>("inbox");
 
-  // AI Copilot Side Panel visibility
-  const [showCopilot, setShowCopilot] = useState(true);
+  // Phones / tablets: the folder sidebar is a slide-in drawer.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The Copilot is docked on wide screens (xl+) and an overlay below that. It starts open only
+  // where it is docked, so a phone never opens straight into the overlay.
+  const isWide = useMediaQuery("(min-width: 1280px)");
+  const [showCopilot, setShowCopilot] = useState(false);
+  React.useEffect(() => {
+    setShowCopilot(isWide);
+  }, [isWide]);
   const [copilotDefaultTab, setCopilotDefaultTab] = useState<
     "summarize" | "intelligence" | "reply" | "rewrite" | "action-items"
   >("summarize");
@@ -74,6 +88,9 @@ export default function DashboardPage() {
   const [composeBody, setComposeBody] = useState("");
   const [composeReplyToMessageId, setComposeReplyToMessageId] = useState<string | undefined>(undefined);
   const [composeThreadId, setComposeThreadId] = useState<string | undefined>(undefined);
+  const [composeDraftId, setComposeDraftId] = useState<string | undefined>(undefined);
+  /** Mailbox the compose window sends from (the replied-to / draft's account). */
+  const [composeAccountId, setComposeAccountId] = useState<string | undefined>(undefined);
 
   const utils = api.useUtils();
 
@@ -154,7 +171,10 @@ export default function DashboardPage() {
     {
       enabled: !isSearching && accountsQuery.isSuccess && !hasNoAccounts,
       getNextPageParam: (lastPage) => lastPage.nextCursor,
-      refetchInterval: MAIL_REFETCH_MS,
+      // Timed refresh re-requests every loaded page, so stop it once the user has scrolled deep
+      // into old mail; webhook-driven refresh (sync state) and window focus still apply.
+      refetchInterval: (query) =>
+        (query.state.data?.pages.length ?? 0) > 4 ? false : MAIL_REFETCH_MS,
       refetchOnWindowFocus: true,
     }
   );
@@ -266,10 +286,67 @@ export default function DashboardPage() {
     },
   });
   const handleSelectThread = (thread: EmailThread) => {
-    setSelectedThread(thread);
     const latest = thread.latestMessage;
+    // Drafts open in the editor, like Gmail / Outlook, instead of the read-only viewer.
+    if (activeFolder === "drafts" && latest) {
+      handleOpenCompose(
+        latest.to.map((r) => r.address).filter(Boolean).join(", "),
+        latest.subject === "(No Subject)" ? "" : latest.subject,
+        htmlToText(nonEmpty(latest.bodyText) ?? latest.body),
+        { draftId: latest.id, accountId: latest.accountId, threadId: latest.threadId || undefined }
+      );
+      return;
+    }
+    setSelectedThread(thread);
     if (latest && !latest.isRead && latest.accountId && activeFolder !== "drafts") {
       markRead.mutate({ messageId: latest.id, isRead: true, accountId: latest.accountId });
+    }
+  };
+
+  const archive = api.mail.archive.useMutation();
+  const [threadActionPending, setThreadActionPending] = useState(false);
+
+  /** Mark Read marks every unread message in the conversation; Mark Unread flags the newest. */
+  const handleToggleReadStatus = async (_threadId: string, hasUnread: boolean) => {
+    if (!displayedThread) return;
+    const targets = hasUnread
+      ? displayedThread.messages.filter((m) => !m.isRead)
+      : displayedThread.latestMessage
+        ? [displayedThread.latestMessage]
+        : [];
+    setThreadActionPending(true);
+    try {
+      await Promise.all(
+        targets.map((m) =>
+          markRead.mutateAsync({ messageId: m.id, isRead: hasUnread, accountId: m.accountId })
+        )
+      );
+      void utils.mail.getThread.invalidate();
+      if (!hasUnread) setSelectedThread(null);
+    } catch (err) {
+      console.error("Failed to update read status:", err);
+    } finally {
+      setThreadActionPending(false);
+    }
+  };
+
+  /** Archives every message of the open conversation, then closes it. */
+  const handleArchiveThread = async () => {
+    if (!displayedThread || threadActionPending) return;
+    setThreadActionPending(true);
+    try {
+      await Promise.all(
+        displayedThread.messages.map((m) =>
+          archive.mutateAsync({ messageId: m.id, accountId: m.accountId })
+        )
+      );
+      setSelectedThread(null);
+      void utils.mail.getInbox.invalidate();
+      void utils.mail.getFolders.invalidate();
+    } catch (err) {
+      console.error("Failed to archive conversation:", err);
+    } finally {
+      setThreadActionPending(false);
     }
   };
 
@@ -303,13 +380,15 @@ export default function DashboardPage() {
     to = "",
     subject = "",
     body = "",
-    reply?: { messageId?: string; threadId?: string }
+    reply?: { messageId?: string; threadId?: string; accountId?: string; draftId?: string }
   ) => {
     setComposeTo(to);
     setComposeSubject(subject);
     setComposeBody(body);
     setComposeReplyToMessageId(reply?.messageId);
     setComposeThreadId(reply?.threadId);
+    setComposeDraftId(reply?.draftId);
+    setComposeAccountId(reply?.accountId ?? selectedAccountId);
     setIsComposeOpen(true);
   };
 
@@ -332,6 +411,7 @@ export default function DashboardPage() {
     handleOpenCompose(recipients, replySubject, replyPrefix, {
       messageId: message.id,
       threadId: message.threadId || undefined,
+      accountId: message.accountId,
     });
   };
 
@@ -345,7 +425,8 @@ export default function DashboardPage() {
 
     handleOpenCompose(to, replySubject, replyText, {
       messageId: latestMessage?.id,
-      threadId: latestMessage?.threadId || undefined,
+      threadId: nonEmpty(latestMessage?.threadId),
+      accountId: latestMessage?.accountId,
     });
   };
 
@@ -357,17 +438,37 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-slate-100">
-      {/* 1. Left Sidebar Navigation */}
-      <aside className="w-64 flex-col bg-slate-900 text-white flex shrink-0 border-r border-slate-800">
+    <div className="relative flex h-full w-full overflow-hidden bg-slate-100">
+      {/* Drawer backdrop (phones / tablets) */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* 1. Left Sidebar Navigation: static on desktop, slide-in drawer below lg */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-[min(17rem,85vw)] flex-col border-r border-slate-800 bg-slate-900 text-white transition-transform duration-200 lg:static lg:z-auto lg:w-64 lg:shrink-0 lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-extrabold text-lg text-blue-400">
             <Mail className="h-6 w-6" />
             <span>E-MassCom</span>
           </Link>
-          <span className="text-[10px] font-mono uppercase bg-blue-950 text-blue-400 px-2 py-0.5 rounded border border-blue-800">
+          <span className="hidden lg:inline text-[0.625rem] font-mono uppercase bg-blue-950 text-blue-400 px-2 py-0.5 rounded border border-blue-800">
             v2.0
           </span>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            aria-label="Close menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="p-4 space-y-4">
@@ -377,7 +478,10 @@ export default function DashboardPage() {
           />
 
           <Button
-            onClick={() => handleOpenCompose()}
+            onClick={() => {
+              setSidebarOpen(false);
+              handleOpenCompose();
+            }}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-11 shadow-lg shadow-blue-900/40 gap-2"
           >
             <Plus className="h-5 w-5" />
@@ -409,12 +513,13 @@ export default function DashboardPage() {
               onClick={() => {
                 setActiveFolder(folder.key);
                 setSelectedThread(null);
+                setSidebarOpen(false);
               }}
             />
           ))}
 
           {categoryFolders.length > 0 && (
-            <div className="pt-4 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            <div className="pt-4 pb-1 px-3 text-[0.625rem] font-semibold uppercase tracking-wider text-slate-500">
               Categories
             </div>
           )}
@@ -428,12 +533,13 @@ export default function DashboardPage() {
               onClick={() => {
                 setActiveFolder(folder.key);
                 setSelectedThread(null);
+                setSidebarOpen(false);
               }}
             />
           ))}
 
           {labelFolders.length > 0 && (
-            <div className="pt-4 pb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            <div className="pt-4 pb-1 px-3 text-[0.625rem] font-semibold uppercase tracking-wider text-slate-500">
               Labels
             </div>
           )}
@@ -447,12 +553,13 @@ export default function DashboardPage() {
               onClick={() => {
                 setActiveFolder(folder.key);
                 setSelectedThread(null);
+                setSidebarOpen(false);
               }}
             />
           ))}
 
           {!selectedAccountId && !foldersQuery.isLoading && (accounts?.length ?? 0) > 1 && (
-            <p className="px-3 pt-4 text-[11px] leading-snug text-slate-500">
+            <p className="px-3 pt-4 text-[0.6875rem] leading-snug text-slate-500">
               Pick a single account to see its labels.
             </p>
           )}
@@ -474,18 +581,43 @@ export default function DashboardPage() {
       </aside>
 
       {/* 2. Middle Column: Thread List */}
-      <main className="w-80 lg:w-96 flex shrink-0 flex-col bg-white">
-        <div className="h-10 shrink-0 border-b border-slate-100 px-4 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 truncate">
-            {isSearching ? "Search results" : activeFolderName}
-          </span>
-          <button
-            onClick={handleRefresh}
-            title="Refresh"
-            className="text-slate-400 hover:text-blue-600"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${activeQuery.isFetching ? "animate-spin" : ""}`} />
-          </button>
+      {/* Phones show one pane at a time: the list, or the open conversation. */}
+      <main
+        className={`${
+          selectedThread ? "hidden md:flex" : "flex"
+        } w-full min-w-0 flex-col bg-white md:w-80 md:shrink-0 md:border-r md:border-slate-200 lg:w-[22rem] 2xl:w-[26rem]`}
+      >
+        <div className="h-12 shrink-0 border-b border-slate-100 px-3 sm:px-4 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden -ml-1 rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
+              aria-label="Open folders"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 truncate">
+              {isSearching ? "Search results" : activeFolderName}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => handleOpenCompose()}
+              title="Compose"
+              aria-label="Compose"
+              className="lg:hidden rounded-md p-1.5 text-blue-600 hover:bg-blue-50"
+            >
+              <PenSquare className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleRefresh}
+              title="Refresh"
+              aria-label="Refresh"
+              className="rounded-md p-1.5 text-slate-400 hover:text-blue-600"
+            >
+              <RefreshCw className={`h-4 w-4 ${activeQuery.isFetching ? "animate-spin" : ""}`} />
+            </button>
+          </div>
         </div>
         {brokenAccounts.length > 0 && (
           <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 flex items-start gap-2">
@@ -547,7 +679,7 @@ export default function DashboardPage() {
                   Link Gmail, Microsoft 365 or Outlook once. Inbox, Sent, Drafts, Spam, Trash and every
                   label load automatically and stay in sync.
                 </span>
-                <div className="flex flex-col gap-2 w-full max-w-[220px]">
+                <div className="flex flex-col gap-2 w-full max-w-[14rem]">
                   <Button size="sm" disabled={connecting} onClick={() => void handleConnect("Google")}>
                     Connect Google
                   </Button>
@@ -576,22 +708,34 @@ export default function DashboardPage() {
       </main>
 
       {/* 3. Right Column: Thread Reader & AI Copilot Panel */}
-      <section className="flex flex-1 overflow-hidden bg-white">
+      <section
+        className={`${selectedThread ? "flex" : "hidden md:flex"} min-w-0 flex-1 overflow-hidden bg-white`}
+      >
         <div className="flex-1 flex flex-col min-w-0">
           {/* Main Top Header */}
-          <div className="h-12 border-b border-slate-100 bg-slate-50/50 px-4 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              {displayedThread ? displayedThread.subject : "No conversation selected"}
-            </span>
+          <div className="h-12 shrink-0 border-b border-slate-100 bg-slate-50/50 px-3 sm:px-4 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                onClick={() => setSelectedThread(null)}
+                className="md:hidden -ml-1 rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
+                aria-label="Back to list"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <span className="truncate text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {displayedThread ? displayedThread.subject : "No conversation selected"}
+              </span>
+            </div>
 
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setShowCopilot(!showCopilot)}
-              className="text-xs gap-1.5 text-blue-600 hover:bg-blue-50 font-medium"
+              className="shrink-0 text-xs gap-1.5 text-blue-600 hover:bg-blue-50 font-medium"
+              aria-label={showCopilot ? "Hide AI Copilot" : "Show AI Copilot"}
             >
               {showCopilot ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-              {showCopilot ? "Hide AI Copilot" : "Show AI Copilot"}
+              <span className="hidden sm:inline">{showCopilot ? "Hide AI Copilot" : "Show AI Copilot"}</span>
             </Button>
           </div>
 
@@ -600,13 +744,19 @@ export default function DashboardPage() {
               thread={displayedThread}
               onOpenReply={handleReplyToMessage}
               onTriggerCopilotTool={handleTriggerCopilotTool}
+              onToggleReadStatus={activeFolder === "drafts" ? undefined : (id, unread) => void handleToggleReadStatus(id, unread)}
+              onArchiveThread={
+                activeFolder === "drafts" || activeFolder === "archive" || activeFolder === "all"
+                  ? undefined
+                  : () => void handleArchiveThread()
+              }
             />
           </div>
         </div>
 
-        {/* AI Copilot Resizable Side Drawer */}
-        {showCopilot && (
-          <aside className="w-80 lg:w-96 flex shrink-0 flex-col">
+        {/* AI Copilot: docked on wide screens */}
+        {showCopilot && isWide && (
+          <aside className="flex w-80 shrink-0 flex-col 2xl:w-96">
             <AICopilotPanel
               thread={displayedThread}
               selectedMessage={displayedThread?.latestMessage ?? null}
@@ -617,6 +767,40 @@ export default function DashboardPage() {
         )}
       </section>
 
+      {/* AI Copilot: full-screen sheet on phones, right-hand overlay on tablets / small laptops */}
+      {showCopilot && !isWide && (
+        <>
+          <div
+            className="fixed inset-0 z-40 hidden bg-slate-950/40 sm:block"
+            onClick={() => setShowCopilot(false)}
+            aria-hidden="true"
+          />
+          <aside className="fixed inset-0 z-50 flex flex-col bg-white sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[26rem] sm:max-w-[90vw] sm:border-l sm:border-slate-200">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-100 px-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">AI Copilot</span>
+              <button
+                onClick={() => setShowCopilot(false)}
+                className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+                aria-label="Close AI Copilot"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <AICopilotPanel
+                thread={displayedThread}
+                selectedMessage={displayedThread?.latestMessage ?? null}
+                onUseGeneratedReply={(text, subject) => {
+                  setShowCopilot(false);
+                  handleUseGeneratedReply(text, subject);
+                }}
+                defaultActiveTab={copilotDefaultTab}
+              />
+            </div>
+          </aside>
+        </>
+      )}
+
       {/* 4. AI-Assisted Email Compose Modal */}
       <ComposeModal
         isOpen={isComposeOpen}
@@ -626,7 +810,8 @@ export default function DashboardPage() {
         initialBody={composeBody}
         replyToMessageId={composeReplyToMessageId}
         threadId={composeThreadId}
-        accountId={selectedAccountId ?? (composeReplyToMessageId ? selectedThread?.latestMessage?.accountId : undefined)}
+        initialDraftId={composeDraftId}
+        accountId={composeAccountId}
       />
     </div>
   );
@@ -668,4 +853,39 @@ function FolderButton({
       )}
     </button>
   );
+}
+
+/** Plain-text version of an HTML draft body for the editor. */
+function htmlToText(html: string): string {
+  if (!/<[a-z][\s\S]*>/i.test(html)) return html;
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Live CSS media-query match (false during SSR and the first client render). */
+function useMediaQuery(query: string): boolean {
+  return React.useSyncExternalStore(
+    (onChange) => {
+      const mql = window.matchMedia(query);
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(query).matches,
+    () => false
+  );
+}
+
+/** Treats "" as missing (Nylas returns empty strings for absent ids / bodies). */
+function nonEmpty(value: string | undefined | null): string | undefined {
+  return value === "" || value == null ? undefined : value;
 }

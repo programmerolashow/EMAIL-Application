@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { env } from "@/env";
 
 /**
- * Origin of the request being served (http://localhost:3000 in dev, the workers.dev / custom
+ * Origin of the request being served (http://localhost:3000 in dev, the Vercel / custom
  * domain in production). Using the live request means localhost never redirects to production.
  */
 const getRequestOrigin = async (): Promise<string> => {

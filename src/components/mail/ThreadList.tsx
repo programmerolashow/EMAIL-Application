@@ -161,7 +161,7 @@ export function ThreadList({
               {totalUnreadCount > 0 && (
                 <Badge
                   variant="secondary"
-                  className="text-[10px] h-4 px-1 bg-blue-100 text-blue-700 font-bold border-none"
+                  className="text-[0.625rem] h-4 px-1 bg-blue-100 text-blue-700 font-bold border-none"
                 >
                   {totalUnreadCount}
                 </Badge>
@@ -185,7 +185,7 @@ export function ThreadList({
             </div>
             <div className="space-y-1">
               <h4 className="text-xs font-bold text-slate-800">Failed to load emails</h4>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[0.6875rem] text-slate-500">
                 {errorMessage ?? "Please check your network connection and try again."}
               </p>
             </div>
@@ -234,9 +234,8 @@ export function ThreadList({
                   You are all caught up! Switch to &quot;All&quot; to view past conversations.
                 </span>
               </>
-            ) : emptyState ? (
-              emptyState
             ) : (
+              emptyState ?? (
               <>
                 <Mail className="h-8 w-8 text-slate-300 mb-1" />
                 <span className="text-sm font-semibold text-slate-700">Your inbox is empty</span>
@@ -244,6 +243,7 @@ export function ThreadList({
                   Connected accounts will sync incoming messages here automatically.
                 </span>
               </>
+              )
             )}
           </div>
         ) : (
@@ -289,7 +289,7 @@ export function ThreadList({
                     </span>
                   </div>
 
-                  <span className="text-[11px] text-slate-400 shrink-0 font-mono">
+                  <span className="text-[0.6875rem] text-slate-400 shrink-0 font-mono">
                     {formattedTime}
                   </span>
                 </div>
@@ -314,13 +314,13 @@ export function ThreadList({
 
                 <div className="flex items-center justify-between mt-1">
                   {thread.metadata.messageCount > 1 ? (
-                    <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-normal text-slate-500 bg-white">
+                    <Badge variant="outline" className="text-[0.625rem] h-4 px-1.5 font-normal text-slate-500 bg-white">
                       {thread.metadata.messageCount} messages
                     </Badge>
                   ) : <span />}
 
                   {isUnread && thread.unreadCount > 1 && (
-                    <Badge className="text-[10px] h-4 px-1.5 bg-blue-600 text-white font-semibold">
+                    <Badge className="text-[0.625rem] h-4 px-1.5 bg-blue-600 text-white font-semibold">
                       {thread.unreadCount} unread
                     </Badge>
                   )}
