@@ -1,5 +1,6 @@
 import "server-only";
 import { env } from "@/env";
+import { NylasApiError } from "@/server/lib/errors";
 import type {
   CommunicationProvider,
   ListParams,
@@ -141,10 +142,12 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     });
 
     if (!response.ok) {
-      const errText = await response.text().catch(() => response.statusText);
-      throw new Error(
-        `Nylas API request failed [${response.status} ${response.statusText}]: ${errText}`
+      const errText = await response.text().catch(() => "");
+      const error = NylasApiError.fromResponse(response.status, response.statusText, errText);
+      console.error(
+        `[Nylas] ${options.method ?? "GET"} ${path} -> ${response.status} ${error.nylasType ?? ""} ${error.nylasMessage} (request ${error.requestId ?? "n/a"})`
       );
+      throw error;
     }
 
     if (response.status === 204) {
@@ -232,6 +235,7 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     if (params?.limit) query.set("limit", String(params.limit));
     if (params?.pageToken) query.set("page_token", params.pageToken);
     if (params?.folderId) query.set("in", params.folderId);
+    if (params?.receivedBefore) query.set("received_before", String(params.receivedBefore));
     return query;
   }
 
@@ -290,10 +294,20 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     );
     const rawThread = result.data;
 
-    const msgsResult = await this.request<{ data: NylasRawMessage[] }>(
-      `${this.grantPath}/messages?thread_id=${encodeURIComponent(id)}&limit=100`
-    );
-    const messages = (msgsResult.data ?? [])
+    // Page through the whole conversation (Nylas returns at most 200 per page).
+    const rawMessages: NylasRawMessage[] = [];
+    let pageToken: string | undefined;
+    for (let i = 0; i < 10; i++) {
+      const query = new URLSearchParams({ thread_id: id, limit: "200" });
+      if (pageToken) query.set("page_token", pageToken);
+      const page = await this.request<{ data: NylasRawMessage[]; next_page_token?: string }>(
+        `${this.grantPath}/messages?${query.toString()}`
+      );
+      rawMessages.push(...(page.data ?? []));
+      pageToken = page.next_page_token;
+      if (!pageToken) break;
+    }
+    const messages = rawMessages
       .map((m) => this.mapMessage(m))
       .sort((a, b) => (a.sentAt ?? "").localeCompare(b.sentAt ?? ""));
 

@@ -37,8 +37,10 @@ export async function middleware(request: NextRequest) {
 
   // Refresh Supabase session & detect authenticated user. Skip the network call entirely when
   // there is no auth cookie: there's nothing to refresh, and it keeps every anonymous request fast.
+  // getClaims() refreshes an expiring session and verifies the JWT (locally with asymmetric
+  // signing keys), avoiding a Supabase Auth round trip on every request where possible.
   const user = hasSupabaseSessionCookie(request.cookies.getAll())
-    ? (await supabase.auth.getUser()).data.user
+    ? ((await supabase.auth.getClaims()).data?.claims ?? null)
     : null;
 
   const pathname = request.nextUrl.pathname;

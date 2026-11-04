@@ -1,6 +1,6 @@
 import "server-only";
 import type { EmailThread, NormalizedMessage, Participant } from "@/lib/email-normalizer";
-import { EmailService } from "@/server/services/email-service";
+import { MailService } from "@/server/services/mail-service";
 
 export interface MinimalParticipant {
   name?: string;
@@ -158,10 +158,10 @@ ${formattedMessages.join("\n---\n")}`;
     let messages: NormalizedMessage[] = [];
 
     if (entity) {
-      const searchResult = await EmailService.searchEmails(userId, entity, accountId, { limit: 4 });
+      const searchResult = await MailService.searchMail(userId, entity, accountId, { limit: 4 });
       messages = searchResult.items;
     } else {
-      const inboxResult = await EmailService.getInbox(userId, accountId, { limit: 4 });
+      const inboxResult = await MailService.getInbox(userId, accountId, { limit: 4 });
       messages = inboxResult.items;
     }
 

@@ -91,7 +91,7 @@ function Showcase() {
           >
             {slide.title}
           </h2>
-          <p key={slide.body} className="animate-in fade-in text-[15px] leading-relaxed text-white/80 duration-700">
+          <p key={slide.body} className="animate-in fade-in text-[0.9375rem] leading-relaxed text-white/80 duration-700">
             {slide.body}
           </p>
           <div className="mt-2 flex items-center gap-1.5" role="tablist">
@@ -122,7 +122,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh bg-white">
       <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">{children}</div>
-      <div className="sticky top-0 hidden h-dvh w-[48%] max-w-[780px] shrink-0 p-3 lg:block">
+      <div className="sticky top-0 hidden h-dvh w-[48%] max-w-[48.75rem] shrink-0 p-3 lg:block">
         <Showcase />
       </div>
     </div>
@@ -154,14 +154,14 @@ export function AuthCard({
           </div>
 
           <div className="mb-6">
-            <h1 className="text-center text-[28px] leading-tight font-bold tracking-tight text-gray-900">{title}</h1>
-            <p className="mt-2 text-center text-[15px] text-gray-500">{subtitle}</p>
+            <h1 className="text-center text-[1.75rem] leading-tight font-bold tracking-tight text-gray-900">{title}</h1>
+            <p className="mt-2 text-center text-[0.9375rem] text-gray-500">{subtitle}</p>
           </div>
 
           {children}
         </div>
       </div>
-      {footer && <div className="px-4 pt-5 pb-3 text-center text-[15px] text-gray-500">{footer}</div>}
+      {footer && <div className="px-4 pt-5 pb-3 text-center text-[0.9375rem] text-gray-500">{footer}</div>}
     </div>
   );
 }
@@ -180,7 +180,7 @@ export function AuthAlert({ kind, children }: { kind: "error" | "success" | "inf
 }
 
 export const authInputClass =
-  "h-12 w-full rounded-xl border border-gray-200 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-100 focus:outline-none disabled:opacity-60";
+  "h-12 w-full rounded-xl border border-gray-200 bg-white px-4 text-[0.9375rem] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-100 focus:outline-none disabled:opacity-60";
 
 export const authPrimaryButtonClass =
-  "flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-[15px] font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 text-[0.9375rem] font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";

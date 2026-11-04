@@ -113,6 +113,8 @@ export interface ListParams {
   pageToken?: string;
   limit?: number;
   folderId?: string;
+  /** Only messages received strictly before this Unix time (seconds). Used for merged paging. */
+  receivedBefore?: number;
 }
 
 export interface SearchMessagesParams extends ListParams {

@@ -18,8 +18,9 @@ export const LinkAccountButton = () => {
     onSuccess: (authUrl) => {
       window.location.href = authUrl;
     },
-    onError: () => {
+    onError: (err) => {
       setLoadingService(null);
+      window.alert(err.message);
     },
   });
 

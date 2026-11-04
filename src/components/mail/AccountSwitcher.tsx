@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { api } from "@/trpc/react";
-import { getNylasAuthUrlAction } from "@/server/actions/nylas";
+import Link from "next/link";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,17 +24,30 @@ export function AccountSwitcher({
   onSelectAccount,
 }: AccountSwitcherProps) {
   const { data: accounts, isLoading } = api.account.getAccounts.useQuery();
+  const utils = api.useUtils();
+  const disconnect = api.account.removeAccount.useMutation({
+    onSuccess: (_res, vars) => {
+      if (selectedAccountId === vars.accountId) onSelectAccount(undefined);
+      void utils.account.getAccounts.invalidate();
+      void utils.mail.invalidate();
+    },
+    onError: (err) => window.alert(err.message),
+  });
   const [connecting, setConnecting] = useState(false);
+  const planQuery = api.account.getPlan.useQuery();
+  const atLimit = planQuery.data ? !planQuery.data.canLinkAnother : false;
+  const getAuthUrl = api.account.getAuthUrl.useMutation();
 
   const selectedAccount = accounts?.find((acc) => acc.id === selectedAccountId);
 
   const handleConnect = async (serviceType: "Google" | "Office365") => {
     try {
       setConnecting(true);
-      const url = await getNylasAuthUrlAction(serviceType);
+      const url = await getAuthUrl.mutateAsync({ serviceType });
       window.location.href = url;
     } catch (err) {
       console.error("Failed to connect account:", err);
+      window.alert(err instanceof Error ? err.message : "Couldn't start connecting the account.");
       setConnecting(false);
     }
   };
@@ -89,7 +102,29 @@ export function AccountSwitcher({
                 <span className="font-medium text-slate-800 truncate">{acc.name || acc.email}</span>
                 <span className="text-xs text-slate-400 truncate">{acc.email}</span>
               </div>
-              {selectedAccountId === acc.id && <Check className="h-4 w-4 text-blue-600" />}
+              <div className="flex shrink-0 items-center gap-2">
+                {selectedAccountId === acc.id && <Check className="h-4 w-4 text-blue-600" />}
+                <button
+                  type="button"
+                  disabled={disconnect.isPending}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (
+                      window.confirm(
+                        `Disconnect ${acc.email}? The app stops syncing it and its access is revoked. Your emails stay in the mailbox itself.`
+                      )
+                    ) {
+                      disconnect.mutate({ accountId: acc.id });
+                    }
+                  }}
+                  className="rounded px-1.5 py-0.5 text-[0.6875rem] font-medium text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  aria-label={`Disconnect ${acc.email}`}
+                >
+                  Disconnect
+                </button>
+              </div>
             </DropdownMenuItem>
           ))
         ) : (
@@ -105,22 +140,41 @@ export function AccountSwitcher({
           Add Account
         </DropdownMenuLabel>
         
-        <DropdownMenuItem
-          onClick={() => handleConnect("Google")}
-          disabled={connecting}
-          className="cursor-pointer font-medium text-blue-600 hover:text-blue-700"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Connect Google Account
-        </DropdownMenuItem>
-        
-        <DropdownMenuItem
-          onClick={() => handleConnect("Office365")}
-          disabled={connecting}
-          className="cursor-pointer font-medium text-blue-600 hover:text-blue-700"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Connect Office 365 Account
+        {atLimit ? (
+          <div className="space-y-1 px-2 py-1.5">
+            <p className="text-xs text-slate-500">
+              Your {planQuery.data?.planName} plan includes {planQuery.data?.maxMailboxes} linked mailbox
+              {planQuery.data?.maxMailboxes === 1 ? "" : "es"}.
+            </p>
+            <DropdownMenuItem asChild className="cursor-pointer font-medium text-violet-700">
+              <Link href="/dashboard/plans">Upgrade to link another mailbox</Link>
+            </DropdownMenuItem>
+          </div>
+        ) : (
+          <>
+            <DropdownMenuItem
+              onClick={() => void handleConnect("Google")}
+              disabled={connecting}
+              className="cursor-pointer font-medium text-blue-600 hover:text-blue-700"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Connect Google Account
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              onClick={() => void handleConnect("Office365")}
+              disabled={connecting}
+              className="cursor-pointer font-medium text-blue-600 hover:text-blue-700"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Connect Microsoft / Outlook Account
+            </DropdownMenuItem>
+          </>
+        )}
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild className="cursor-pointer text-slate-600">
+          <Link href="/dashboard/plans">Plans</Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

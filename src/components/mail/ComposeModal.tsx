@@ -257,8 +257,19 @@ export function ComposeModal({
   initialDraftId,
   replyToMessageId,
   threadId,
-  accountId,
+  accountId: accountIdProp,
 }: ComposeModalProps) {
+  // "From" mailbox. Replies and existing drafts are tied to their mailbox; a new email can pick
+  // any connected account that still works.
+  const fromAccountsQuery = api.account.getAccounts.useQuery(undefined, { enabled: isOpen });
+  const fromAccounts = (fromAccountsQuery.data ?? []).filter((a) => a.status !== "invalid");
+  const [fromAccountId, setFromAccountId] = useState<string | undefined>(accountIdProp);
+  useEffect(() => {
+    if (isOpen) setFromAccountId(accountIdProp);
+  }, [isOpen, accountIdProp]);
+  const accountId = fromAccountId ?? accountIdProp ?? fromAccounts[0]?.id;
+  const fromLocked = Boolean(replyToMessageId ?? initialDraftId);
+
   // Message fields
   const [to, setTo] = useState(initialTo);
   const [cc, setCc] = useState("");
@@ -835,8 +846,10 @@ export function ComposeModal({
       try {
         result = await generateDraftMutation.mutateAsync({ instruction, threadId, accountId });
       } catch (err) {
-        // The thread may not be fetchable (e.g. a message without a provider thread); retry without context.
-        if (!threadId) throw err;
+        // The thread may not be fetchable (e.g. a message without a provider thread); retry without
+        // context. Never retry a limit / configuration error: it would fail the same way.
+        const code = (err as { data?: { code?: string } } | null)?.data?.code;
+        if (!threadId || code === "TOO_MANY_REQUESTS" || code === "PRECONDITION_FAILED") throw err;
         result = await generateDraftMutation.mutateAsync({ instruction, accountId });
       }
 
@@ -854,7 +867,7 @@ export function ComposeModal({
       toast.success("AI draft inserted. Review it before sending.");
     } catch (err) {
       console.error("[ComposeModal] AI generate failed:", err);
-      toast.error("Couldn't generate a draft right now. Please try again.");
+      toast.error(getErrorMessage(err, "Couldn't generate a draft right now. Please try again."));
     } finally {
       setAiAction(null);
     }
@@ -879,7 +892,7 @@ export function ComposeModal({
       toast.success("Text rewritten. You can undo this.");
     } catch (err) {
       console.error("[ComposeModal] AI rewrite failed:", err);
-      toast.error("Couldn't rewrite the text right now. Please try again.");
+      toast.error(getErrorMessage(err, "Couldn't rewrite the text right now. Please try again."));
     } finally {
       setAiAction(null);
     }
@@ -917,7 +930,7 @@ export function ComposeModal({
         className="text-sm border-slate-200"
       />
       {invalid.length > 0 && (
-        <p className="mt-1 text-[11px] text-red-600">Invalid address: {invalid.join(", ")}</p>
+        <p className="mt-1 text-[0.6875rem] text-red-600">Invalid address: {invalid.join(", ")}</p>
       )}
     </>
   );
@@ -941,7 +954,7 @@ export function ComposeModal({
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
           }}
           onDrop={handleDrop}
-          className="sm:max-w-3xl bg-white p-0 gap-0 overflow-hidden rounded-2xl"
+          className="bg-white p-0 gap-0 overflow-hidden rounded-2xl sm:max-w-3xl 2xl:max-w-4xl max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:flex max-sm:h-dvh max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:flex-col max-sm:rounded-none"
         >
           {/* Header */}
           <DialogHeader className="flex flex-row items-center justify-between gap-3 space-y-0 border-b border-slate-800 bg-slate-900 px-4 py-3 text-white">
@@ -951,7 +964,7 @@ export function ComposeModal({
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="flex items-center text-[11px]" aria-live="polite">
+              <div className="flex items-center text-[0.6875rem]" aria-live="polite">
                 {saveStatus === "saving" && (
                   <span className="flex items-center gap-1.5 text-blue-300">
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -992,10 +1005,45 @@ export function ComposeModal({
           </DialogHeader>
 
           {/* Content */}
-          <div className="relative max-h-[75vh] space-y-4 overflow-y-auto p-6">
+          <div className="relative max-h-[75vh] space-y-4 overflow-y-auto p-4 sm:p-6 max-sm:max-h-none max-sm:min-h-0 max-sm:flex-1">
             {isDragging && (
               <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/90 text-sm font-medium text-blue-700">
                 Drop files to attach
+              </div>
+            )}
+
+            {/* From (only when there is a choice) */}
+            {fromAccounts.length > 1 && (
+              <div>
+                <label htmlFor="compose-from" className={`${fieldLabel} mb-1`}>
+                  From
+                </label>
+                <select
+                  id="compose-from"
+                  value={accountId ?? ""}
+                  disabled={fromLocked || isSending}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    // An autosaved draft lives in the old mailbox: remove it there; the next
+                    // autosave creates it in the newly selected mailbox.
+                    const oldDraftId = draftIdRef.current;
+                    if (oldDraftId && accountId && next !== accountId) {
+                      void deleteDraftMutation
+                        .mutateAsync({ draftId: oldDraftId, accountId })
+                        .catch((err: unknown) => console.error("[ComposeModal] Old draft cleanup failed:", err));
+                      draftIdRef.current = undefined;
+                    }
+                    setFromAccountId(next);
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 disabled:bg-slate-50 disabled:text-slate-500"
+                  title={fromLocked ? "Replies and drafts are sent from their own mailbox." : undefined}
+                >
+                  {fromAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -1156,7 +1204,7 @@ export function ComposeModal({
                     </DropdownMenuTrigger>
 
                     <DropdownMenuContent align="end" className="w-60">
-                      <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-slate-400">
+                      <DropdownMenuLabel className="text-[0.6875rem] uppercase tracking-wider text-slate-400">
                         Write
                       </DropdownMenuLabel>
                       <DropdownMenuItem
@@ -1172,7 +1220,7 @@ export function ComposeModal({
 
                       <DropdownMenuSeparator />
 
-                      <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-slate-400">
+                      <DropdownMenuLabel className="text-[0.6875rem] uppercase tracking-wider text-slate-400">
                         Rewrite your text
                       </DropdownMenuLabel>
                       {REWRITE_OPTIONS.map(({ option, label, Icon }) => (
@@ -1247,7 +1295,7 @@ export function ComposeModal({
               />
 
               {isListening && (
-                <p className="flex items-center gap-1.5 text-[11px] text-red-600" aria-live="polite">
+                <p className="flex items-center gap-1.5 text-[0.6875rem] text-red-600" aria-live="polite">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-600" />
                   {interimTranscript ? <span className="italic text-slate-500">{interimTranscript}</span> : "Listening…"}
                 </p>
@@ -1287,8 +1335,8 @@ export function ComposeModal({
                         className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs text-slate-800"
                       >
                         <FileText className="h-3.5 w-3.5 text-blue-600" />
-                        <span className="max-w-[140px] truncate font-medium">{file.name}</span>
-                        <span className="text-[10px] text-slate-400">({formatFileSize(file.size)})</span>
+                        <span className="max-w-[9rem] truncate font-medium">{file.name}</span>
+                        <span className="text-[0.625rem] text-slate-400">({formatFileSize(file.size)})</span>
                         <button
                           type="button"
                           aria-label={`Remove ${file.name}`}
@@ -1303,7 +1351,7 @@ export function ComposeModal({
                   })}
                 </div>
               ) : (
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[0.6875rem] text-slate-400">
                   Drag files here or use Attach files. Up to 3 MB total. Attachments are sent with the message and
                   aren&apos;t stored in drafts.
                 </p>
@@ -1312,7 +1360,7 @@ export function ComposeModal({
           </div>
 
           {/* Footer */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 p-4">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 p-3 sm:p-4">
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"

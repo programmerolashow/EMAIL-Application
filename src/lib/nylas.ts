@@ -1,9 +1,10 @@
 import "server-only";
 import { headers } from "next/headers";
 import { env } from "@/env";
+import { NylasApiError } from "@/server/lib/errors";
 
 /**
- * Origin of the request being served (http://localhost:3000 in dev, the workers.dev / custom
+ * Origin of the request being served (http://localhost:3000 in dev, the Vercel / custom
  * domain in production). Using the live request means localhost never redirects to production.
  */
 const getRequestOrigin = async (): Promise<string> => {
@@ -56,23 +57,17 @@ export const exchangeCodeForAccessToken = async (code: string) => {
   });
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => response.statusText);
-    throw new Error(`Failed to exchange code for access token: ${errText}`);
+    const errText = await response.text().catch(() => "");
+    throw NylasApiError.fromResponse(response.status, response.statusText, errText);
   }
 
-  const data = (await response.json()) as {
-    access_token?: string;
-    grant_id?: string;
-    email?: string;
-    expires_in?: number;
-    id_token?: string;
-  };
+  // Only the grant id is kept. The short-lived access token is deliberately discarded: every
+  // mail call uses /v3/grants/{grantId} with the server API key.
+  const data = (await response.json()) as { grant_id?: string; email?: string };
 
   return {
-    accessToken: data.access_token ?? data.grant_id ?? "",
     grantId: data.grant_id ?? "",
     email: data.email ?? "",
-    expiresIn: data.expires_in,
   };
 };
 
@@ -97,8 +92,8 @@ export const getAccount = async (grantId: string) => {
   );
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => response.statusText);
-    throw new Error(`Failed to get account details from Nylas [${response.status}]: ${errText}`);
+    const errText = await response.text().catch(() => "");
+    throw NylasApiError.fromResponse(response.status, response.statusText, errText);
   }
 
   const result = (await response.json()) as {
@@ -119,4 +114,19 @@ export const getAccount = async (grantId: string) => {
     grantStatus: data?.grant_status,
     name: email ? email.split("@")[0] ?? "Nylas User" : "Nylas User",
   };
+};
+
+/**
+ * Revokes a grant at Nylas so a disconnected mailbox stops syncing, sending webhooks and counting
+ * toward the Nylas bill. A grant that is already gone (404) counts as success.
+ */
+export const deleteGrant = async (grantId: string): Promise<void> => {
+  const response = await fetch(`${env.NYLAS_API_URI}/v3/grants/${encodeURIComponent(grantId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${env.NYLAS_API_KEY}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (response.ok || response.status === 404) return;
+  const errText = await response.text().catch(() => "");
+  throw NylasApiError.fromResponse(response.status, response.statusText, errText);
 };

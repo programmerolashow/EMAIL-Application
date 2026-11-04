@@ -85,31 +85,86 @@ export function AICopilotPanel({
   const accountId =
     selectedMessage?.accountId ?? thread?.latestMessage?.accountId ?? thread?.messages[0]?.accountId;
   // Drafts and single messages have no provider thread; summarize those as a message instead.
-  const threadId = thread?.latestMessage?.threadId || undefined;
+  const rawThreadId = thread?.latestMessage?.threadId;
+  const threadId = rawThreadId === "" ? undefined : rawThreadId;
   const messageId = selectedMessage?.id ?? thread?.latestMessage?.id;
+  /** Newest message in the conversation: a saved result is refreshed once when this changes. */
+  const version = thread?.latestMessage?.id ?? messageId;
+
+  // Saved AI results: shown again from the database, never re-run on focus / remount / retry.
+  const savedResultOptions = {
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    retry: false,
+  } as const;
+
+  const utils = api.useUtils();
+  const quotaQuery = api.ai.getQuota.useQuery(undefined, { staleTime: 60_000 });
+  const quota = quotaQuery.data;
+  const refreshQuota = () => void utils.ai.getQuota.invalidate();
+
+  const regenerate = api.ai.regenerate.useMutation({
+    onSuccess: (res) => {
+      if (res.feature === "summarize-thread") {
+        utils.ai.summarizeThread.setData({ threadId: threadId ?? "", accountId, version }, res.data);
+      } else if (res.feature === "summarize-email") {
+        utils.ai.summarizeEmail.setData({ messageId: messageId ?? "", accountId }, res.data);
+      } else if (res.feature === "intelligence") {
+        utils.ai.getThreadIntelligence.setData({ threadId: threadId ?? "", accountId, version }, res.data);
+      } else {
+        utils.ai.extractActionItems.setData(
+          { emailOrThreadId: threadId ?? messageId ?? "", isThread: Boolean(threadId), accountId, version },
+          res.data
+        );
+      }
+    },
+    onSettled: refreshQuota,
+  });
+  const regenerateSummary = () => {
+    if (threadId) regenerate.mutate({ feature: "summarize-thread", threadId, accountId, version });
+    else if (messageId) regenerate.mutate({ feature: "summarize-email", messageId, accountId });
+  };
+  const regenerateIntelligence = () => {
+    if (threadId) regenerate.mutate({ feature: "intelligence", threadId, accountId, version });
+  };
+  const regenerateActionItems = () => {
+    const target = threadId ?? messageId;
+    if (target) {
+      regenerate.mutate({
+        feature: "action-items",
+        emailOrThreadId: target,
+        isThread: Boolean(threadId),
+        accountId,
+        version,
+      });
+    }
+  };
 
   const threadSummaryQuery = api.ai.summarizeThread.useQuery(
-    { threadId: threadId ?? "", accountId },
-    { enabled: Boolean(threadId) && activeTab === "summarize", retry: 1 }
+    { threadId: threadId ?? "", accountId, version },
+    { ...savedResultOptions, enabled: Boolean(threadId) && activeTab === "summarize" }
   );
 
   const emailSummaryQuery = api.ai.summarizeEmail.useQuery(
     { messageId: messageId ?? "", accountId },
-    { enabled: !threadId && Boolean(messageId) && activeTab === "summarize", retry: 1 }
+    { ...savedResultOptions, enabled: !threadId && Boolean(messageId) && activeTab === "summarize" }
   );
 
   const threadIntelligenceQuery = api.ai.getThreadIntelligence.useQuery(
-    { threadId: threadId ?? "", accountId },
-    { enabled: Boolean(threadId) && activeTab === "intelligence", retry: 1 }
+    { threadId: threadId ?? "", accountId, version },
+    { ...savedResultOptions, enabled: Boolean(threadId) && activeTab === "intelligence" }
   );
 
   const actionItemsQuery = api.ai.extractActionItems.useQuery(
-    { emailOrThreadId: threadId ?? messageId ?? "", isThread: Boolean(threadId), accountId },
-    { enabled: Boolean(threadId ?? messageId) && activeTab === "action-items", retry: 1 }
+    { emailOrThreadId: threadId ?? messageId ?? "", isThread: Boolean(threadId), accountId, version },
+    { ...savedResultOptions, enabled: Boolean(threadId ?? messageId) && activeTab === "action-items" }
   );
 
-  const generateReplyMutation = api.ai.generateReply.useMutation();
-  const rewriteDraftMutation = api.ai.rewriteDraft.useMutation();
+  const generateReplyMutation = api.ai.generateReply.useMutation({ onSettled: refreshQuota });
+  const rewriteDraftMutation = api.ai.rewriteDraft.useMutation({ onSettled: refreshQuota });
 
   const summaryData = threadSummaryQuery.data ?? emailSummaryQuery.data;
   const isSummaryLoading = threadSummaryQuery.isLoading || emailSummaryQuery.isLoading;
@@ -175,12 +230,12 @@ export function AICopilotPanel({
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900">AI Copilot</h3>
-            <p className="text-[11px] text-slate-500">Context Builder & OpenAI v4</p>
+            <p className="text-[0.6875rem] text-slate-500">Context Builder & OpenAI v4</p>
           </div>
         </div>
 
-        <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 font-medium">
-          GPT-4o Ready
+        <Badge variant="outline" className="text-[0.625rem] bg-blue-50 text-blue-700 border-blue-200 font-medium">
+          5 runs / feature / week
         </Badge>
       </div>
 
@@ -224,16 +279,16 @@ export function AICopilotPanel({
                 <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <div className="text-center">
                   <p className="text-xs font-semibold text-slate-700">Summarizing conversation...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Context Builder trimming raw email payloads</p>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">Context Builder trimming raw email payloads</p>
                 </div>
               </div>
             ) : isSummaryError ? (
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Summarization Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {summaryError?.message ?? "Unable to generate email summary."}
                     </span>
                   </div>
@@ -250,6 +305,12 @@ export function AICopilotPanel({
               </div>
             ) : summaryData ? (
               <>
+                <RegenerateBar
+                  quota={quota?.summarize}
+                  pending={regenerate.isPending && regenerate.variables?.feature.startsWith("summarize")}
+                  error={regenerate.variables?.feature.startsWith("summarize") ? regenerate.error?.message : undefined}
+                  onRegenerate={regenerateSummary}
+                />
                 <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2 shadow-sm relative group">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
@@ -333,16 +394,16 @@ export function AICopilotPanel({
                 <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <div className="text-center">
                   <p className="text-xs font-semibold text-slate-700">Extracting thread intelligence...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Analyzing decisions, deliverables & timelines</p>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">Analyzing decisions, deliverables & timelines</p>
                 </div>
               </div>
             ) : threadIntelligenceQuery.isError ? (
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Intelligence Analysis Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {threadIntelligenceQuery.error?.message ?? "Unable to analyze thread intelligence."}
                     </span>
                   </div>
@@ -359,6 +420,12 @@ export function AICopilotPanel({
               </div>
             ) : threadIntelligenceQuery.data ? (
               <>
+                <RegenerateBar
+                  quota={quota?.intelligence}
+                  pending={regenerate.isPending && regenerate.variables?.feature === "intelligence"}
+                  error={regenerate.variables?.feature === "intelligence" ? regenerate.error?.message : undefined}
+                  onRegenerate={regenerateIntelligence}
+                />
                 <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2 shadow-sm relative">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
@@ -425,7 +492,7 @@ export function AICopilotPanel({
                               <User className="h-3.5 w-3.5 text-blue-600" />
                               {item.person}
                             </span>
-                            <span className="text-slate-600 text-[11px] truncate max-w-[160px]">
+                            <span className="text-slate-600 text-[0.6875rem] truncate max-w-[10rem]">
                               {item.task}
                             </span>
                           </div>
@@ -512,7 +579,9 @@ export function AICopilotPanel({
 
               <Button
                 onClick={handleGenerateReply}
-                disabled={generateReplyMutation.isPending || (!selectedMessage && !thread)}
+                disabled={
+                  generateReplyMutation.isPending || (!selectedMessage && !thread) || quota?.reply.remaining === 0
+                }
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 gap-1.5 shadow-sm"
               >
                 {generateReplyMutation.isPending ? (
@@ -527,6 +596,7 @@ export function AICopilotPanel({
                   </>
                 )}
               </Button>
+              <QuotaNote quota={quota?.reply} />
             </div>
 
             {/* Error State */}
@@ -534,9 +604,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Reply Generation Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {generateReplyMutation.error?.message ?? "Unable to generate smart reply draft."}
                     </span>
                   </div>
@@ -634,7 +704,9 @@ export function AICopilotPanel({
 
               <Button
                 onClick={handleRewriteDraft}
-                disabled={rewriteDraftMutation.isPending || !rewriteInputText.trim()}
+                disabled={
+                  rewriteDraftMutation.isPending || !rewriteInputText.trim() || quota?.rewrite.remaining === 0
+                }
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 gap-1.5 shadow-sm"
               >
                 {rewriteDraftMutation.isPending ? (
@@ -649,6 +721,7 @@ export function AICopilotPanel({
                   </>
                 )}
               </Button>
+              <QuotaNote quota={quota?.rewrite} />
             </div>
 
             {/* Error State */}
@@ -656,9 +729,9 @@ export function AICopilotPanel({
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Rewrite Transformation Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {rewriteDraftMutation.error?.message ?? "Unable to rewrite draft content."}
                     </span>
                   </div>
@@ -724,16 +797,16 @@ export function AICopilotPanel({
                 <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                 <div className="text-center">
                   <p className="text-xs font-semibold text-slate-700">Extracting action items...</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Scanning tasks, assigned owners & deadlines</p>
+                  <p className="text-[0.6875rem] text-slate-400 mt-0.5">Scanning tasks, assigned owners & deadlines</p>
                 </div>
               </div>
             ) : actionItemsQuery.isError ? (
               <div className="rounded-xl border border-red-200 bg-red-50/50 p-4 space-y-3">
                 <div className="flex items-start gap-2 text-red-700">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
+                  <div className="min-w-0 text-xs">
                     <span className="font-semibold block">Action Item Extraction Failed</span>
-                    <span className="text-red-600">
+                    <span className="text-red-600 break-words [overflow-wrap:anywhere]">
                       {actionItemsQuery.error?.message ?? "Unable to extract action items."}
                     </span>
                   </div>
@@ -750,6 +823,12 @@ export function AICopilotPanel({
               </div>
             ) : actionItemsQuery.data && actionItemsQuery.data.length > 0 ? (
               <div className="space-y-3">
+                <RegenerateBar
+                  quota={quota?.["action-items"]}
+                  pending={regenerate.isPending && regenerate.variables?.feature === "action-items"}
+                  error={regenerate.variables?.feature === "action-items" ? regenerate.error?.message : undefined}
+                  onRegenerate={regenerateActionItems}
+                />
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                     {actionItemsQuery.data.length} Deliverable(s) Found
@@ -792,7 +871,7 @@ export function AICopilotPanel({
                         {item.taskDescription ?? item.task}
                       </span>
                       <Badge
-                        className={`text-[10px] shrink-0 font-medium ${
+                        className={`text-[0.625rem] shrink-0 font-medium ${
                           item.priority === "High"
                             ? "bg-red-50 text-red-700 border-red-200"
                             : item.priority === "Medium"
@@ -804,7 +883,7 @@ export function AICopilotPanel({
                       </Badge>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between text-[0.6875rem] text-slate-500 pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-1">
                         <User className="h-3.5 w-3.5 text-blue-600" />
                         <span>{item.assignedOwner ?? item.owner ?? "Unassigned"}</span>
@@ -821,18 +900,86 @@ export function AICopilotPanel({
               <div className="flex flex-col items-center justify-center p-8 bg-white rounded-xl border border-slate-200 text-center space-y-3">
                 <ListTodo className="h-8 w-8 text-slate-300" />
                 <p className="text-xs text-slate-500">No action items or deliverables detected.</p>
-                <Button
-                  size="sm"
-                  onClick={() => void actionItemsQuery.refetch()}
-                  className="text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Re-scan Conversation
-                </Button>
+                {actionItemsQuery.data ? (
+                  <RegenerateBar
+                    quota={quota?.["action-items"]}
+                    pending={regenerate.isPending && regenerate.variables?.feature === "action-items"}
+                    error={regenerate.variables?.feature === "action-items" ? regenerate.error?.message : undefined}
+                    onRegenerate={regenerateActionItems}
+                    label="Re-scan conversation"
+                  />
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => void actionItemsQuery.refetch()}
+                    className="text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Scan Conversation
+                  </Button>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface QuotaInfo {
+  limit: number;
+  used: number;
+  remaining: number;
+  resetsAt: string | null;
+}
+
+const formatReset = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+/** "3 of 5 runs left this week" (or when the next run unlocks). */
+function QuotaNote({ quota }: { quota?: QuotaInfo }) {
+  if (!quota) return null;
+  return (
+    <p className={`text-[0.6875rem] ${quota.remaining === 0 ? "text-amber-700" : "text-slate-500"}`}>
+      {quota.remaining === 0 && quota.resetsAt
+        ? `All ${quota.limit} runs used this week. Next run available ${formatReset(quota.resetsAt)}.`
+        : `${quota.remaining} of ${quota.limit} runs left this week.`}
+    </p>
+  );
+}
+
+/** Saved-result header: the result is kept; rerunning it uses 1 of the 5 weekly runs. */
+function RegenerateBar({
+  quota,
+  pending,
+  error,
+  onRegenerate,
+  label = "Regenerate",
+}: {
+  quota?: QuotaInfo;
+  pending?: boolean;
+  error?: string;
+  onRegenerate: () => void;
+  label?: string;
+}) {
+  const exhausted = quota?.remaining === 0;
+  return (
+    <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[0.6875rem] font-medium text-slate-500">Saved result</span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onRegenerate}
+          disabled={(pending ?? false) || exhausted}
+          className="h-7 gap-1.5 border-slate-200 text-xs text-slate-700"
+        >
+          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          {label}
+        </Button>
+      </div>
+      <QuotaNote quota={quota} />
+      {error && <p className="text-[0.6875rem] text-red-600">{error}</p>}
     </div>
   );
 }

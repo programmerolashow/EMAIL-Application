@@ -26,7 +26,88 @@ const rewriteOptionEnum = z.enum([
   "Simplify it",
 ]);
 
+/** Newest message id the cached result should reflect; a different value refreshes it once. */
+const versionSchema = z.string().max(512).optional();
+
 export const aiRouter = createTRPCRouter({
+  /** Remaining weekly allowance (5 per feature per 7 days) for every AI feature. */
+  getQuota: protectedProcedure.query(async ({ ctx }) => {
+    return AIService.getQuota(ctx.auth.userId);
+  }),
+
+  /**
+   * Explicit rerun of a saved-result feature. This is the only path that spends the weekly
+   * allowance for summaries, intelligence and action items.
+   */
+  regenerate: protectedProcedure
+    .input(
+      z.discriminatedUnion("feature", [
+        z.object({
+          feature: z.literal("summarize-thread"),
+          threadId: z.string(),
+          accountId: z.string().optional(),
+          version: versionSchema,
+        }),
+        z.object({
+          feature: z.literal("summarize-email"),
+          messageId: z.string(),
+          accountId: z.string().optional(),
+        }),
+        z.object({
+          feature: z.literal("intelligence"),
+          threadId: z.string(),
+          accountId: z.string().optional(),
+          version: versionSchema,
+        }),
+        z.object({
+          feature: z.literal("action-items"),
+          emailOrThreadId: z.string(),
+          isThread: z.boolean(),
+          accountId: z.string().optional(),
+          version: versionSchema,
+        }),
+      ])
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.auth.userId;
+      switch (input.feature) {
+        case "summarize-thread":
+          return {
+            feature: input.feature,
+            data: await AIService.summarizeThread(userId, input.threadId, input.accountId, {
+              version: input.version,
+              regenerate: true,
+            }),
+          } as const;
+        case "summarize-email":
+          return {
+            feature: input.feature,
+            data: await AIService.summarizeEmail(userId, input.messageId, input.accountId, {
+              regenerate: true,
+            }),
+          } as const;
+        case "intelligence":
+          return {
+            feature: input.feature,
+            data: await AIService.getThreadIntelligence(userId, input.threadId, input.accountId, {
+              version: input.version,
+              regenerate: true,
+            }),
+          } as const;
+        case "action-items":
+          return {
+            feature: input.feature,
+            data: await AIService.extractActionItems(
+              userId,
+              input.emailOrThreadId,
+              input.isThread,
+              input.accountId,
+              { version: input.version, regenerate: true }
+            ),
+          } as const;
+      }
+    }),
+
   /**
    * Processes a natural language prompt (e.g. "Summarize my recent conversations with John")
    * through the privacy-preserving AIContextBuilder pipeline.
@@ -50,10 +131,13 @@ export const aiRouter = createTRPCRouter({
       z.object({
         threadId: z.string(),
         accountId: z.string().optional(),
+        version: versionSchema,
       })
     )
     .query(async ({ ctx, input }) => {
-      return AIService.summarizeThread(ctx.auth.userId, input.threadId, input.accountId);
+      return AIService.summarizeThread(ctx.auth.userId, input.threadId, input.accountId, {
+        version: input.version,
+      });
     }),
 
   /**
@@ -93,10 +177,13 @@ export const aiRouter = createTRPCRouter({
       z.object({
         threadId: z.string(),
         accountId: z.string().optional(),
+        version: versionSchema,
       })
     )
     .query(async ({ ctx, input }) => {
-      return AIService.getThreadIntelligence(ctx.auth.userId, input.threadId, input.accountId);
+      return AIService.getThreadIntelligence(ctx.auth.userId, input.threadId, input.accountId, {
+        version: input.version,
+      });
     }),
 
   /**
@@ -133,8 +220,8 @@ export const aiRouter = createTRPCRouter({
         customPrompt: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      return AIService.rewriteDraft(input.draftText, input.option, input.customPrompt);
+    .mutation(async ({ ctx, input }) => {
+      return AIService.rewriteDraft(ctx.auth.userId, input.draftText, input.option, input.customPrompt);
     }),
 
   /**
@@ -146,6 +233,7 @@ export const aiRouter = createTRPCRouter({
         emailOrThreadId: z.string(),
         isThread: z.boolean().default(false),
         accountId: z.string().optional(),
+        version: versionSchema,
       })
     )
     .query(async ({ ctx, input }) => {
@@ -153,7 +241,8 @@ export const aiRouter = createTRPCRouter({
         ctx.auth.userId,
         input.emailOrThreadId,
         input.isThread,
-        input.accountId
+        input.accountId,
+        { version: input.version }
       );
     }),
 });

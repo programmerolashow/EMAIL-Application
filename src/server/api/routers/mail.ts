@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { MailService } from "@/server/services/mail-service";
+import { UsageLimits } from "@/server/services/usage-limits";
 
 const emailAddressSchema = z.object({
   name: z.string().optional(),
@@ -103,7 +104,10 @@ export const mailRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      return MailService.sendMail(ctx.auth.userId, input.draft, input.accountId);
+      // Abuse guard: a capped number of outgoing emails per user per day.
+      return UsageLimits.consumeSend(ctx.auth.userId, () =>
+        MailService.sendMail(ctx.auth.userId, input.draft, input.accountId)
+      );
     }),
 
   createDraft: protectedProcedure

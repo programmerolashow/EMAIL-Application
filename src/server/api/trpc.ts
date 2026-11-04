@@ -10,7 +10,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
+import { UserFacingError, describeKnownError } from "@/server/lib/errors";
 
 import { db } from "@/server/db";
 
@@ -27,20 +27,18 @@ import { db } from "@/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
+  // getClaims() verifies the session JWT (locally when the project uses asymmetric signing keys,
+  // otherwise via Supabase), so API calls no longer need a round trip to Supabase each time.
+  // The user row is synced at sign-in and on dashboard load, not on every request.
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    await syncSupabaseUserToDatabase(user).catch(() => null);
-  }
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
 
   return {
     db,
     auth: {
-      userId: user?.id ?? null,
-      user,
+      userId: typeof claims?.sub === "string" ? claims.sub : null,
+      email: typeof claims?.email === "string" ? claims.email : null,
     },
     ...opts,
   };
@@ -56,10 +54,27 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 const t = initTRPC.context<typeof createTRPCContext>().create({
   transformer: superjson,
   errorFormatter({ shape, error }) {
+    // UserFacingErrors (incl. Nylas / OpenAI errors with their actual message) are shown as-is.
+    // Unexpected internal errors are logged server-side and never leak raw details to users.
+    const userFacing = error.cause instanceof UserFacingError ? error.cause : null;
+    const known = userFacing ? undefined : describeKnownError(error.cause);
+    if (known) console.error("[tRPC] Infrastructure error:", error.cause);
+    const hideInternal =
+      !userFacing && !known && error.code === "INTERNAL_SERVER_ERROR" && process.env.NODE_ENV === "production";
+    if (hideInternal) console.error("[tRPC] Internal error:", error);
     return {
       ...shape,
+      message: userFacing
+        ? userFacing.message
+        : known
+          ? known
+          : hideInternal
+          ? "Something went wrong on our side. Please try again."
+          : shape.message,
       data: {
         ...shape.data,
+        // The real category (TOO_MANY_REQUESTS, UNAUTHORIZED, ...) so the client can react to it.
+        code: userFacing ? userFacing.code : shape.data.code,
         zodError:
           error.cause instanceof ZodError ? error.cause.flatten() : null,
       },

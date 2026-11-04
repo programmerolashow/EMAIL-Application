@@ -1,7 +1,8 @@
 import "server-only";
 import { db } from "@/server/db";
 import { getCommunicationProvider } from "@/lib/communication-provider";
-import { getAccount } from "@/lib/nylas";
+import { deleteGrant, getAccount } from "@/lib/nylas";
+import { NylasApiError, UserFacingError, toUserFacing } from "@/server/lib/errors";
 import type {
   CommunicationProvider,
   ListParams,
@@ -111,7 +112,7 @@ export class MailService {
       : await this.pickDefaultAccount(userId);
 
     if (!account) {
-      throw new Error("No connected email account found for this user.");
+      throw new UserFacingError("No connected email account found. Connect a mailbox first.", "NOT_FOUND");
     }
 
     try {
@@ -120,7 +121,7 @@ export class MailService {
       return { account, provider };
     } catch (err) {
       console.error(`[MailService] Failed to initialize provider for account ${account.id}:`, err);
-      throw new Error("Failed to initialize email provider for the connected account.");
+      throw new UserFacingError("Couldn't open the connected mailbox. Try reconnecting it.", "INTERNAL_SERVER_ERROR");
     }
   }
 
@@ -254,10 +255,96 @@ export class MailService {
     });
 
     if (failures > 0 && failures === active.length) {
-      throw new Error("Failed to load mail from your connected accounts.");
+      const first = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      throw toUserFacing(first?.reason, "Couldn't load mail from your connected accounts.");
     }
 
     const hasMore = Object.values(nextCursor).some((token) => token !== null);
+    return {
+      items: items.sort(byNewest),
+      nextCursor: hasMore ? encodeCursor(nextCursor) : undefined,
+      hasMore,
+    };
+  }
+
+  /**
+   * Merged folder view across accounts, strictly newest-first across page boundaries.
+   *
+   * Each account is paged by date (`received_before`). A page only returns messages newer than
+   * the cutoff = the newest "oldest message" among accounts that still have more mail; anything
+   * older is held back and fetched again next page. This keeps the merged list in true date
+   * order, so an older email can never appear above a newer one from another account.
+   */
+  private static async listAcrossAccountsByDate(
+    accounts: AccountRow[],
+    folderKey: string,
+    cursorRaw: string | undefined,
+    limit: number | undefined
+  ): Promise<CursorPaginatedResponse<NormalizedMessage>> {
+    const cursor = decodeCursor(cursorRaw);
+    const active = accounts.filter((a) => !cursor || (a.id in cursor && cursor[a.id] !== null));
+    const toSeconds = (iso?: string) => (iso ? Math.floor(new Date(iso).getTime() / 1000) : 0);
+
+    const results = await Promise.allSettled(
+      active.map(async (account) => {
+        const before = cursor?.[account.id];
+        const page = await this.listFolderPage(account, folderKey, {
+          limit,
+          receivedBefore: typeof before === "string" && before ? Number(before) : undefined,
+        });
+        return { account, page };
+      })
+    );
+
+    type Loaded = { account: AccountRow; messages: NormalizedMessage[]; hasMore: boolean; oldest: number };
+    const loaded: Loaded[] = [];
+    let failures = 0;
+    results.forEach((res, idx) => {
+      if (res.status === "rejected") {
+        failures++;
+        console.error(`[MailService] Account ${active[idx]!.id} failed in unified view:`, res.reason);
+        return;
+      }
+      const { account, page } = res.value;
+      if (!page) return; // Account has no folder with this role.
+      const oldest = page.messages.reduce(
+        (min, m) => Math.min(min, toSeconds(m.receivedAt)),
+        Number.POSITIVE_INFINITY
+      );
+      loaded.push({
+        account,
+        messages: page.messages,
+        hasMore: Boolean(page.nextPageToken) && page.messages.length > 0,
+        oldest: Number.isFinite(oldest) ? oldest : 0,
+      });
+    });
+
+    if (failures > 0 && failures === active.length) {
+      const first = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      throw toUserFacing(first?.reason, "Couldn't load mail from your connected accounts.");
+    }
+
+    const withMore = loaded.filter((l) => l.hasMore);
+    const cutoff = withMore.length > 0 ? Math.max(...withMore.map((l) => l.oldest)) : 0;
+
+    const items: NormalizedMessage[] = [];
+    const nextCursor: CompositeCursor = {};
+    for (const l of loaded) {
+      const kept = l.messages.filter((m) => toSeconds(m.receivedAt) >= cutoff);
+      items.push(...kept);
+      const heldBack = kept.length < l.messages.length;
+      if (heldBack) {
+        nextCursor[l.account.id] = String(cutoff);
+      } else if (l.hasMore) {
+        nextCursor[l.account.id] = String(l.oldest);
+      } else {
+        nextCursor[l.account.id] = null;
+      }
+    }
+    // Failed accounts are dropped from this paging run; the next refresh starts them again.
+    for (const a of active) if (!(a.id in nextCursor)) nextCursor[a.id] = null;
+
+    const hasMore = Object.values(nextCursor).some((v) => v !== null);
     return {
       items: items.sort(byNewest),
       nextCursor: hasMore ? encodeCursor(nextCursor) : undefined,
@@ -305,10 +392,9 @@ export class MailService {
       grantHealthCache.set(grantId, { at: Date.now(), value });
       return value;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
       // 401/403/404 on a grant path with a working API key = the grant was deleted, revoked or
       // belongs to another app (e.g. a pre-Nylas account row): it must be linked again.
-      if (/\b(401|403|404)\b|not[_ ]found|unauthorized/i.test(message)) {
+      if (err instanceof NylasApiError && (err.isGrantInvalid || err.status === 404)) {
         const value = { status: "invalid" as const };
         grantHealthCache.set(grantId, { at: Date.now(), value });
         return value;
@@ -318,11 +404,21 @@ export class MailService {
     }
   }
 
-  /** Removes one of the user's linked mailboxes from the app database. */
+  /**
+   * Disconnects a mailbox: revokes the grant at Nylas (stops syncing, webhooks and billing) and
+   * removes it from the app. A grant Nylas no longer knows is treated as already revoked.
+   */
   static async removeAccount(userId: string, accountId: string): Promise<ActionSuccessResponse> {
-    if (!userId) throw new Error("Unauthorized");
+    if (!userId) throw new UserFacingError("Please sign in again.", "UNAUTHORIZED");
     const row = await db.account.findFirst({ where: { id: accountId, userId } });
-    if (!row) throw new Error("Account not found.");
+    if (!row) throw new UserFacingError("That mailbox is not connected to your account.", "NOT_FOUND");
+    try {
+      await deleteGrant(row.providerAccountId ?? row.id);
+    } catch (err) {
+      if (!(err instanceof NylasApiError && err.isGrantInvalid)) {
+        throw toUserFacing(err, "Couldn't disconnect the mailbox at Nylas. Try again.");
+      }
+    }
     await db.account.delete({ where: { id: row.id } });
     this.forgetGrant(row.providerAccountId ?? row.id);
     return { success: true, id: row.id };
@@ -442,17 +538,21 @@ export class MailService {
 
       const accounts = await this.getAllAccounts(userId);
       if (accounts.length === 0) {
-        throw new Error("No connected email account found for this user.");
+        throw new UserFacingError("No connected email account found. Connect a mailbox first.", "NOT_FOUND");
       }
       if (!isRoleKey(folderKey)) {
-        throw new Error("Pick a single account to open a label.");
+        throw new UserFacingError("Labels belong to one mailbox. Pick that account first.", "BAD_REQUEST");
       }
-      return await this.listAcrossAccounts(accounts, params?.pageToken, (account, pageToken) =>
-        this.listFolderPage(account, folderKey, { limit, pageToken })
-      );
+      // Drafts have no date filter at Nylas, so they keep per-account page tokens.
+      if (folderKey === "drafts") {
+        return await this.listAcrossAccounts(accounts, params?.pageToken, (account, pageToken) =>
+          this.listFolderPage(account, folderKey, { limit, pageToken })
+        );
+      }
+      return await this.listAcrossAccountsByDate(accounts, folderKey, params?.pageToken, limit);
     } catch (error) {
       console.error("[MailService.getInbox] Provider error:", error);
-      throw new Error(error instanceof Error ? error.message : "Failed to retrieve inbox emails.");
+      throw toUserFacing(error, "Failed to retrieve inbox emails.");
     }
   }
 
@@ -476,7 +576,7 @@ export class MailService {
       };
     } catch (error) {
       console.error(`[MailService.getThread] Provider error [threadId=${threadId}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to retrieve email thread.");
+      throw toUserFacing(error, "Failed to retrieve email thread.");
     }
   }
 
@@ -490,7 +590,7 @@ export class MailService {
       return { ...normalizeMessage(rawMessage), accountId: account.id, accountEmail: account.email };
     } catch (error) {
       console.error(`[MailService.getMessage] Provider error [messageId=${messageId}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to retrieve email message.");
+      throw toUserFacing(error, "Failed to retrieve email message.");
     }
   }
 
@@ -518,7 +618,7 @@ export class MailService {
       // Unified search across every connected account.
       const accounts = await this.getAllAccounts(userId);
       if (accounts.length === 0) {
-        throw new Error("No connected email account found for this user.");
+        throw new UserFacingError("No connected email account found. Connect a mailbox first.", "NOT_FOUND");
       }
       return await this.listAcrossAccounts(accounts, params?.pageToken, async (account, pageToken) => {
         const result = await this.providerFor(account).searchMessages(query, { limit, pageToken });
@@ -526,7 +626,7 @@ export class MailService {
       });
     } catch (error) {
       console.error(`[MailService.searchMail] Provider error [query=${query}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to search emails.");
+      throw toUserFacing(error, "Failed to search emails.");
     }
   }
 
@@ -544,7 +644,7 @@ export class MailService {
       return await provider.sendMessage(draft);
     } catch (error) {
       console.error("[MailService.sendMail] Provider error:", error);
-      throw new Error(error instanceof Error ? error.message : "Failed to send email.");
+      throw toUserFacing(error, "Failed to send email.");
     }
   }
 
@@ -562,7 +662,7 @@ export class MailService {
       return await provider.createDraft(draft);
     } catch (error) {
       console.error("[MailService.createDraft] Provider error:", error);
-      throw new Error(error instanceof Error ? error.message : "Failed to create draft.");
+      throw toUserFacing(error, "Failed to create draft.");
     }
   }
 
@@ -575,7 +675,7 @@ export class MailService {
       return await provider.updateDraft(draftId, draft);
     } catch (error) {
       console.error(`[MailService.updateDraft] Provider error [draftId=${draftId}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to update draft.");
+      throw toUserFacing(error, "Failed to update draft.");
     }
   }
 
@@ -588,7 +688,7 @@ export class MailService {
       return await provider.deleteDraft(draftId);
     } catch (error) {
       console.error(`[MailService.deleteDraft] Provider error [draftId=${draftId}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to delete draft.");
+      throw toUserFacing(error, "Failed to delete draft.");
     }
   }
 
@@ -601,7 +701,7 @@ export class MailService {
       return await provider.markRead(messageId, isRead);
     } catch (error) {
       console.error(`[MailService.markAsRead] Provider error [messageId=${messageId}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to update read status.");
+      throw toUserFacing(error, "Failed to update read status.");
     }
   }
 
@@ -622,7 +722,7 @@ export class MailService {
       return await provider.archive(messageId, archiveFolder?.id, inboxFolder?.id ?? "INBOX");
     } catch (error) {
       console.error(`[MailService.archiveMessage] Provider error [messageId=${messageId}]:`, error);
-      throw new Error(error instanceof Error ? error.message : "Failed to archive email.");
+      throw toUserFacing(error, "Failed to archive email.");
     }
   }
 
@@ -640,7 +740,7 @@ export class MailService {
       return await provider.listContacts(params);
     } catch (error) {
       console.error("[MailService.listContacts] Provider error:", error);
-      throw new Error(error instanceof Error ? error.message : "Failed to retrieve contacts.");
+      throw toUserFacing(error, "Failed to retrieve contacts.");
     }
   }
 
@@ -653,7 +753,7 @@ export class MailService {
       return await provider.listCalendarEvents(params);
     } catch (error) {
       console.error("[MailService.listCalendarEvents] Provider error:", error);
-      throw new Error(error instanceof Error ? error.message : "Failed to retrieve calendar events.");
+      throw toUserFacing(error, "Failed to retrieve calendar events.");
     }
   }
 }

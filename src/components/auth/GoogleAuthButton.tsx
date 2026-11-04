@@ -15,7 +15,7 @@ interface GoogleAuthButtonProps {
 
 function GoogleLogo() {
   return (
-    <svg viewBox="0 0 48 48" className="h-[18px] w-[18px] shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 48 48" className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden="true">
       <path
         fill="#FFC107"
         d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"
@@ -74,7 +74,7 @@ export function GoogleAuthButton({
       disabled={Boolean(disabled) || loading}
       className="flex h-12 w-full min-w-0 items-center justify-center gap-2 rounded-xl bg-gray-100 px-3 text-sm font-medium text-gray-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-colors hover:bg-gray-200/70 disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {loading ? <Loader2 className="h-[18px] w-[18px] animate-spin text-gray-500" /> : <GoogleLogo />}
+      {loading ? <Loader2 className="h-[1.125rem] w-[1.125rem] animate-spin text-gray-500" /> : <GoogleLogo />}
       <span className="truncate">{loading ? "Opening…" : label}</span>
     </button>
   );
@@ -82,7 +82,7 @@ export function GoogleAuthButton({
 
 export function AuthDivider() {
   return (
-    <div className="flex items-center gap-3 text-[13px] text-gray-400">
+    <div className="flex items-center gap-3 text-[0.8125rem] text-gray-400">
       <span className="h-px flex-1 bg-gray-200" />
       or continue with
       <span className="h-px flex-1 bg-gray-200" />

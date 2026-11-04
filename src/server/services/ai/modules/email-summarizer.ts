@@ -1,5 +1,5 @@
 import "server-only";
-import { EmailService } from "@/server/services/email-service";
+import { MailService } from "@/server/services/mail-service";
 import type { NormalizedMessage, EmailThread } from "@/lib/email-normalizer";
 import { AIContextBuilder } from "../context-builder";
 import { AIService } from "../ai-service";
@@ -11,7 +11,7 @@ export class EmailSummarizer {
     messageId: string,
     accountId?: string
   ): Promise<EmailSummaryResult> {
-    const message = await EmailService.getMessage(userId, messageId, accountId);
+    const message = await MailService.getMessage(userId, messageId, accountId);
     return this.summarize(message);
   }
 

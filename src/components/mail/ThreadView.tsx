@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import type { EmailThread, NormalizedMessage } from "@/lib/email-normalizer";
 import { format } from "date-fns";
+import DOMPurify from "dompurify";
 import {
   Reply,
   ReplyAll,
@@ -40,6 +41,11 @@ export function ThreadView({
 }: ThreadViewProps) {
   // Collapsed message IDs set for managing long conversation feeds
   const [collapsedMessageIds, setCollapsedMessageIds] = useState<Set<string>>(new Set());
+  // Remote images (often tracking pixels) stay blocked until the user allows them per message.
+  const [imagesAllowedFor, setImagesAllowedFor] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setImagesAllowedFor(new Set());
+  }, [thread?.id]);
 
   // Automatically collapse all older messages by default on new thread selection, keeping latest expanded
   useEffect(() => {
@@ -97,6 +103,13 @@ export function ThreadView({
 
   const latestMessage = thread.latestMessage ?? thread.messages[thread.messages.length - 1];
 
+  /**
+   * Email HTML is untrusted: strip scripts, event handlers (onerror, onclick...), forms and
+   * iframes before rendering, and open links in a new tab. Plain-text bodies keep line breaks.
+   */
+  const renderBody = (message: NormalizedMessage) =>
+    sanitizeEmailHtml(message.body, imagesAllowedFor.has(message.id));
+
   const formatFileSize = (bytes: number) => {
     if (!bytes) return "";
     if (bytes < 1024) return `${bytes} B`;
@@ -107,18 +120,18 @@ export function ThreadView({
   return (
     <div className="flex h-full flex-col bg-white">
       {/* Thread Header Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 p-4 sm:px-6 bg-white sticky top-0 z-10">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 border-b border-slate-200 p-3 sm:p-4 lg:px-6 bg-white sticky top-0 z-10">
         <div className="flex flex-col min-w-0 space-y-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-900 truncate">
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">
               {thread.subject ?? "(No Subject)"}
             </h2>
             {thread.unreadCount > 0 ? (
-              <Badge className="bg-blue-600 text-white hover:bg-blue-600 text-[10px] font-semibold">
+              <Badge className="bg-blue-600 text-white hover:bg-blue-600 text-[0.625rem] font-semibold">
                 {thread.unreadCount} Unread
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-[10px] text-slate-500 font-normal">
+              <Badge variant="outline" className="text-[0.625rem] text-slate-500 font-normal">
                 Read
               </Badge>
             )}
@@ -134,7 +147,7 @@ export function ThreadView({
         </div>
 
         {/* Toolbar Action Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {thread.messages.length > 1 && (
             <Button
               variant="ghost"
@@ -146,12 +159,12 @@ export function ThreadView({
               {collapsedMessageIds.size > 0 ? (
                 <>
                   <Maximize2 className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Expand All</span>
+                  <span className="hidden sm:inline">Expand All</span>
                 </>
               ) : (
                 <>
                   <Minimize2 className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Collapse All</span>
+                  <span className="hidden sm:inline">Collapse All</span>
                 </>
               )}
             </Button>
@@ -168,12 +181,12 @@ export function ThreadView({
               {thread.unreadCount > 0 ? (
                 <>
                   <MailCheck className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Mark Read</span>
+                  <span className="hidden sm:inline">Mark Read</span>
                 </>
               ) : (
                 <>
                   <Mail className="h-3.5 w-3.5 text-blue-600" />
-                  <span>Mark Unread</span>
+                  <span className="hidden sm:inline">Mark Unread</span>
                 </>
               )}
             </Button>
@@ -188,7 +201,7 @@ export function ThreadView({
               title="Archive Conversation"
             >
               <Archive className="h-3.5 w-3.5 text-slate-500" />
-              <span>Archive</span>
+              <span className="hidden sm:inline">Archive</span>
             </Button>
           )}
 
@@ -200,7 +213,7 @@ export function ThreadView({
               className="h-8 gap-1.5 border-blue-200 bg-blue-50/50 text-blue-700 hover:bg-blue-100 font-semibold text-xs"
             >
               <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-              <span>AI Summary</span>
+              <span className="hidden sm:inline">AI Summary</span>
             </Button>
           )}
 
@@ -219,7 +232,7 @@ export function ThreadView({
       </div>
 
       {/* Messages Feed */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/30">
+      <div className="flex-1 overflow-y-auto p-2 sm:p-4 lg:p-6 space-y-3 sm:space-y-4 bg-slate-50/30">
         {thread.messages.map((message, index) => {
           const isLast = index === thread.messages.length - 1;
           const isCollapsed = collapsedMessageIds.has(message.id);
@@ -246,10 +259,10 @@ export function ThreadView({
               {/* Message Header */}
               <div
                 onClick={() => toggleMessageCollapse(message.id)}
-                className="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-slate-50/60 rounded-t-xl transition-colors"
+                className="flex items-start sm:items-center justify-between gap-2 p-3 sm:p-4 cursor-pointer select-none hover:bg-slate-50/60 rounded-t-xl transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <Avatar className="h-9 w-9 bg-blue-100 text-blue-700 font-bold shrink-0">
+                  <Avatar className="h-8 w-8 sm:h-9 sm:w-9 bg-blue-100 text-blue-700 font-bold shrink-0">
                     <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">
                       {senderInitials}
                     </AvatarFallback>
@@ -261,7 +274,7 @@ export function ThreadView({
                         {senderName}
                       </span>
                       {message.isRead === false && (
-                        <Badge className="bg-blue-600 text-white text-[9px] h-4 px-1">
+                        <Badge className="bg-blue-600 text-white text-[0.5625rem] h-4 px-1">
                           New
                         </Badge>
                       )}
@@ -272,10 +285,11 @@ export function ThreadView({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
-                  <div className="flex items-center gap-1 text-xs text-slate-400 font-mono">
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                  <div className="flex items-center gap-1 text-[0.6875rem] sm:text-xs text-slate-400 font-mono">
                     <Clock className="h-3 w-3" />
-                    <span>{formattedDate}</span>
+                    <span className="hidden sm:inline">{formattedDate}</span>
+                    <span className="sm:hidden">{shortDate(message.receivedAt || message.sentAt)}</span>
                   </div>
                   {isCollapsed ? (
                     <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -297,16 +311,33 @@ export function ThreadView({
 
               {/* Expanded Message Body & Details */}
               {!isCollapsed && (
-                <div className="border-t border-slate-100 p-4 sm:p-6 space-y-4">
+                <div className="border-t border-slate-100 p-3 sm:p-6 space-y-4">
                   {/* Message Body Content */}
-                  <div
-                    className="prose prose-slate max-w-none text-sm leading-relaxed whitespace-pre-wrap text-slate-800 font-sans"
-                    dangerouslySetInnerHTML={{
-                      __html: message.body.includes("<")
-                        ? message.body
-                        : message.body.replace(/\n/g, "<br/>"),
-                    }}
-                  />
+                  {(() => {
+                    const { html, blocked } = renderBody(message);
+                    return (
+                      <>
+                        {blocked > 0 && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            <span>Images are hidden to protect your privacy (they can tell the sender you opened this).</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setImagesAllowedFor((prev) => new Set(prev).add(message.id))
+                              }
+                              className="font-semibold text-blue-600 hover:text-blue-700"
+                            >
+                              Show images
+                            </button>
+                          </div>
+                        )}
+                        <div
+                          className="prose prose-slate max-w-none overflow-x-hidden break-words text-sm leading-relaxed text-slate-800 font-sans [&_*]:!max-w-full [&_table]:!w-full [&_table]:!table-fixed [&_td]:break-words [&_img]:!h-auto [&_pre]:whitespace-pre-wrap"
+                          dangerouslySetInnerHTML={{ __html: html }}
+                        />
+                      </>
+                    );
+                  })()}
 
                   {/* Attachments Section */}
                   {message.attachments && message.attachments.length > 0 && (
@@ -323,9 +354,9 @@ export function ThreadView({
                             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-800 font-medium hover:bg-slate-100 transition-colors"
                           >
                             <FileText className="h-3.5 w-3.5 text-blue-600" />
-                            <span className="truncate max-w-[180px]">{att.name ?? att.filename}</span>
+                            <span className="truncate max-w-[11.25rem]">{att.name ?? att.filename}</span>
                             {att.size > 0 && (
-                              <span className="text-[10px] text-slate-400 font-mono">
+                              <span className="text-[0.625rem] text-slate-400 font-mono">
                                 ({formatFileSize(att.size)})
                               </span>
                             )}
@@ -364,4 +395,69 @@ export function ThreadView({
       </div>
     </div>
   );
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Compact date for phones: time today, otherwise day + month. */
+function shortDate(value: string): string {
+  try {
+    const d = new Date(value);
+    const now = new Date();
+    return d.toDateString() === now.toDateString() ? format(d, "p") : format(d, "d MMM");
+  } catch {
+    return value;
+  }
+}
+
+const REMOTE_URL = /^(https?:)?\/\//i;
+const CSS_URL = /url\(\s*['"]?\s*(https?:)?\/\/[^)]*\)/gi;
+let blockedCount = 0;
+let blockImages = true;
+
+// One-time DOMPurify hooks: links open in a new tab without leaking the app URL, and remote
+// images / backgrounds are removed unless the user chose to show them.
+if (typeof window !== "undefined" && !(DOMPurify as { __emailHooks?: boolean }).__emailHooks) {
+  (DOMPurify as { __emailHooks?: boolean }).__emailHooks = true;
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.tagName === "A" && node.hasAttribute("href")) {
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", "noopener noreferrer nofollow");
+    }
+    if (!blockImages) return;
+    for (const attr of ["src", "srcset", "background", "poster"]) {
+      const value = node.getAttribute(attr);
+      if (value && (attr === "srcset" || REMOTE_URL.test(value.trim()))) {
+        node.removeAttribute(attr);
+        blockedCount++;
+      }
+    }
+    const style = node.getAttribute("style");
+    if (style && CSS_URL.test(style)) {
+      node.setAttribute("style", style.replace(CSS_URL, "none"));
+      blockedCount++;
+    }
+    CSS_URL.lastIndex = 0;
+  });
+}
+
+/** Sanitizes untrusted email HTML. Returns the safe HTML and how many remote images it hid. */
+function sanitizeEmailHtml(body: string, allowImages: boolean): { html: string; blocked: number } {
+  // Without a DOM (server render) DOMPurify cannot sanitize, so render nothing rather than raw HTML.
+  if (typeof window === "undefined" || !DOMPurify.isSupported) return { html: "", blocked: 0 };
+  const isHtml = /<[a-z][\s\S]*>/i.test(body);
+  const source = isHtml ? body : escapeHtml(body).replace(/\n/g, "<br/>");
+  blockedCount = 0;
+  blockImages = !allowImages;
+  const html = DOMPurify.sanitize(source, {
+    FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed", "link", "meta", "base"],
+    ADD_ATTR: ["target"],
+  });
+  return { html, blocked: blockedCount };
 }

@@ -14,13 +14,13 @@ export default async function DashboardLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/SignIn");
+    redirect("/sign-in");
   }
 
   await syncSupabaseUserToDatabase(user).catch(() => null);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-100 font-sans text-slate-900">
+    <div className="flex h-dvh w-full overflow-hidden bg-slate-100 font-sans text-slate-900">
       {children}
     </div>
   );

@@ -1,7 +1,9 @@
 import "server-only";
 import { db } from "@/server/db";
 import { MailService } from "@/server/services/mail-service";
-import type { Prisma } from "@prisma/client";
+
+/** Nylas retries failed deliveries for up to ~72h; keep idempotency records a little longer. */
+const EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ProcessWebhookParams {
   eventId: string;
@@ -87,7 +89,8 @@ export class WebhookService {
             provider,
             eventType,
             accountId: accountId ?? null,
-            payload: payload as unknown as Prisma.InputJsonValue,
+            // Email content is never stored (payloads carry full message bodies); only the
+            // event id / type / status needed for idempotency.
             status: "PROCESSING",
           },
         });
@@ -112,7 +115,7 @@ export class WebhookService {
       if (handler) {
         await handler(payload);
       } else {
-        await this.defaultEventHandler(eventType, accountId, payload, provider);
+        await this.defaultEventHandler(eventType, accountId, provider);
       }
 
       // Step 4: Mark Processed
@@ -125,6 +128,8 @@ export class WebhookService {
       });
 
       console.log(`✅ [WebhookService] Successfully processed webhook event [eventId=${eventId}, type=${eventType}]`);
+      // Occasional cleanup keeps the table small without a separate cron job.
+      if (Math.random() < 0.02) void this.pruneOldEvents().catch(() => null);
       return {
         received: true,
         success: true,
@@ -151,50 +156,23 @@ export class WebhookService {
     }
   }
 
-  /**
-   * Default idempotent domain event handler.
-   * Guarantees zero duplicate emails, threads, or notifications in local database storage.
-   */
+  /** Only Nylas events are accepted; anything else is recorded and ignored. */
   private static async defaultEventHandler(
     eventType: string,
     accountId: string | null | undefined,
-    payload: Record<string, unknown>,
     provider?: string
   ): Promise<void> {
     if (provider === "Nylas") {
       await this.handleNylasEvent(eventType, accountId);
       return;
     }
+    console.log(`ℹ️ [WebhookService] Ignoring event [${eventType}] from unsupported provider ${provider ?? "unknown"}.`);
+  }
 
-    const data = (typeof payload.data === "object" && payload.data !== null
-      ? payload.data
-      : payload) as Record<string, unknown>;
-
-    switch (eventType) {
-      case "email.created":
-      case "email.updated":
-      case "message.new":
-      case "message.updated": {
-        await this.handleEmailWebhook(accountId, data);
-        break;
-      }
-
-      case "thread.updated": {
-        await this.handleThreadWebhook(accountId, data);
-        break;
-      }
-
-      case "account.updated":
-      case "account.sync": {
-        await this.handleAccountWebhook(accountId, data);
-        break;
-      }
-
-      default: {
-        console.log(`ℹ️ [WebhookService] Unhandled event type [${eventType}], event recorded.`);
-        break;
-      }
-    }
+  /** Webhook bookkeeping only needs to cover Nylas' retry window; older rows are deleted. */
+  private static async pruneOldEvents(): Promise<void> {
+    const cutoff = new Date(Date.now() - EVENT_RETENTION_MS);
+    await db.webhookEvent.deleteMany({ where: { createdAt: { lt: cutoff } } });
   }
 
   /**
@@ -238,130 +216,5 @@ export class WebhookService {
     if (updated.count === 0) {
       console.warn(`⚠️ [WebhookService] Nylas event for unknown grant ${grantId}.`);
     }
-  }
-
-  /**
-   * Idempotently upserts email message data.
-   */
-  private static async handleEmailWebhook(
-    accountId: string | null | undefined,
-    data: Record<string, unknown>
-  ): Promise<void> {
-    const messageId = typeof data.id === "string" ? data.id : typeof data.messageId === "string" ? data.messageId : null;
-    const threadId = typeof data.threadId === "string" ? data.threadId : null;
-
-    if (!messageId || !accountId) {
-      console.log(`ℹ️ [WebhookService] Skipping email sync - missing messageId or accountId.`);
-      return;
-    }
-
-    const account = await db.account.findUnique({
-      where: { id: accountId },
-    });
-
-    if (!account) {
-      console.warn(`⚠️ [WebhookService] Cannot sync email: Account ${accountId} not found.`);
-      return;
-    }
-
-    // Ensure parent Thread exists idempotently
-    const effectiveThreadId = threadId ?? `thread-${messageId}`;
-    await db.thread.upsert({
-      where: { id: effectiveThreadId },
-      create: {
-        id: effectiveThreadId,
-        userId: account.userId,
-        accountId: account.id,
-        subject: typeof data.subject === "string" ? data.subject : "No Subject",
-        lastMessageDate: new Date(),
-        unread: Boolean(data.unread ?? data.isRead === false),
-      },
-      update: {
-        lastMessageDate: new Date(),
-        updatedAt: new Date(),
-      },
-    });
-
-    // Idempotent Email Upsert - prevents duplicate records
-    await db.email.upsert({
-      where: { id: messageId },
-      create: {
-        id: messageId,
-        threadId: effectiveThreadId,
-        userId: account.userId,
-        accountId: account.id,
-        subject: typeof data.subject === "string" ? data.subject : null,
-        from: (data.from as Prisma.InputJsonValue) ?? {},
-        to: (data.to as Prisma.InputJsonValue) ?? [],
-        cc: (data.cc as Prisma.InputJsonValue) ?? null,
-        bcc: (data.bcc as Prisma.InputJsonValue) ?? null,
-        sentAt: data.sentAt ? new Date(data.sentAt as string) : new Date(),
-        receivedAt: data.receivedAt ? new Date(data.receivedAt as string) : new Date(),
-        body: typeof data.body === "string" ? data.body : null,
-        bodySnippet: typeof data.snippet === "string" ? data.snippet : null,
-        isRead: Boolean(data.isRead ?? !data.unread),
-      },
-      update: {
-        subject: typeof data.subject === "string" ? data.subject : undefined,
-        isRead: typeof data.isRead === "boolean" ? data.isRead : undefined,
-        bodySnippet: typeof data.snippet === "string" ? data.snippet : undefined,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  /**
-   * Idempotently upserts thread metadata.
-   */
-  private static async handleThreadWebhook(
-    accountId: string | null | undefined,
-    data: Record<string, unknown>
-  ): Promise<void> {
-    const threadId = typeof data.id === "string" ? data.id : typeof data.threadId === "string" ? data.threadId : null;
-
-    if (!threadId || !accountId) return;
-
-    const account = await db.account.findUnique({
-      where: { id: accountId },
-    });
-
-    if (!account) return;
-
-    await db.thread.upsert({
-      where: { id: threadId },
-      create: {
-        id: threadId,
-        userId: account.userId,
-        accountId: account.id,
-        subject: typeof data.subject === "string" ? data.subject : null,
-        unread: Boolean(data.unread),
-        lastMessageDate: new Date(),
-      },
-      update: {
-        unread: typeof data.unread === "boolean" ? data.unread : undefined,
-        subject: typeof data.subject === "string" ? data.subject : undefined,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  /**
-   * Idempotently updates account status.
-   */
-  private static async handleAccountWebhook(
-    accountId: string | null | undefined,
-    data: Record<string, unknown>
-  ): Promise<void> {
-    if (!accountId) return;
-
-    await db.account
-      .update({
-        where: { id: accountId },
-        data: {
-          updatedAt: new Date(),
-          ...(typeof data.name === "string" ? { name: data.name } : {}),
-        },
-      })
-      .catch(() => null);
   }
 }
