@@ -36,6 +36,32 @@ export interface Message {
   flags?: string[];
   isRead?: boolean;
   attachments?: MessageAttachment[];
+  /** Provider folder / label ids the message currently lives in (e.g. Gmail "INBOX", "SPAM"). */
+  folders?: string[];
+}
+
+/** Well-known mailbox roles, resolved per provider to a concrete folder id. */
+export type FolderRole =
+  | "inbox"
+  | "sent"
+  | "drafts"
+  | "spam"
+  | "trash"
+  | "archive"
+  | "starred"
+  | "important"
+  | "all";
+
+export interface Folder {
+  id: string;
+  name: string;
+  /** Set for system folders (Inbox, Sent, Spam, ...); undefined for user labels. */
+  role?: FolderRole;
+  /** Gmail category tabs (Social, Promotions, ...). */
+  isCategory?: boolean;
+  unreadCount: number;
+  totalCount: number;
+  parentId?: string;
 }
 
 export interface Thread {
@@ -45,6 +71,14 @@ export interface Thread {
   lastMessageAt?: string;
 }
 
+export interface OutgoingAttachment {
+  filename: string;
+  contentType: string;
+  size: number;
+  /** Base64-encoded file content (no data: URL prefix). */
+  contentBase64: string;
+}
+
 export interface Draft {
   id?: string;
   subject?: string;
@@ -52,6 +86,10 @@ export interface Draft {
   cc?: EmailAddress[];
   bcc?: EmailAddress[];
   body: string;
+  /** Provider message id this draft replies to, so the reply stays in the same thread. */
+  replyToMessageId?: string;
+  /** Inline attachments. Only honoured when sending, not when saving drafts. */
+  attachments?: OutgoingAttachment[];
 }
 
 export interface Contact {
@@ -121,11 +159,17 @@ export interface CommunicationProvider {
   /** Delete a draft email */
   deleteDraft(id: string): Promise<{ success: boolean }>;
 
+  /** List drafts (drafts are not returned by the messages endpoint) */
+  listDrafts(params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }>;
+
+  /** List every folder / label on the mailbox */
+  listFolders(): Promise<Folder[]>;
+
   /** Mark a message as read or unread */
   markRead(id: string, isRead: boolean): Promise<{ success: boolean }>;
 
-  /** Archive a message */
-  archive(id: string): Promise<{ success: boolean }>;
+  /** Archive a message (Gmail: remove INBOX label; Outlook: move to Archive) */
+  archive(id: string, archiveFolderId?: string, inboxFolderId?: string): Promise<{ success: boolean }>;
 
   /** List user contacts */
   listContacts(params?: ListParams): Promise<{ contacts: Contact[]; nextPageToken?: string }>;

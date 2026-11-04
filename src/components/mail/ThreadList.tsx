@@ -30,6 +30,12 @@ interface ThreadListProps {
   onRetry?: () => void;
   hasMore: boolean;
   onLoadMore: () => void;
+  /** True while the next page is being fetched. */
+  isFetchingMore?: boolean;
+  /** Optional server error text shown in the error state. */
+  errorMessage?: string;
+  /** Rendered instead of the inbox-empty message (e.g. a "connect your account" prompt). */
+  emptyState?: React.ReactNode;
   filterUnreadOnly: boolean;
   onToggleUnreadFilter: () => void;
 }
@@ -45,6 +51,9 @@ export function ThreadList({
   onRetry,
   hasMore,
   onLoadMore,
+  isFetchingMore = false,
+  errorMessage,
+  emptyState,
   filterUnreadOnly,
   onToggleUnreadFilter,
 }: ThreadListProps) {
@@ -72,6 +81,24 @@ export function ThreadList({
 
     return () => clearTimeout(timer);
   }, [localSearch, searchQuery, onSearchChange]);
+
+  // Infinite scroll: fetch the next page whenever the sentinel at the bottom of the list
+  // comes into view, so every message in the folder is reachable without clicking.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef(onLoadMore);
+  loadMoreRef.current = onLoadMore;
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
+      },
+      { rootMargin: "600px 0px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, threads.length]);
 
   const filteredThreads = filterUnreadOnly
     ? threads.filter((t) => t.unreadCount > 0)
@@ -159,7 +186,7 @@ export function ThreadList({
             <div className="space-y-1">
               <h4 className="text-xs font-bold text-slate-800">Failed to load emails</h4>
               <p className="text-[11px] text-slate-500">
-                Please check your network connection and try again.
+                {errorMessage ?? "Please check your network connection and try again."}
               </p>
             </div>
             {onRetry && (
@@ -207,6 +234,8 @@ export function ThreadList({
                   You are all caught up! Switch to &quot;All&quot; to view past conversations.
                 </span>
               </>
+            ) : emptyState ? (
+              emptyState
             ) : (
               <>
                 <Mail className="h-8 w-8 text-slate-300 mb-1" />
@@ -236,7 +265,7 @@ export function ThreadList({
 
             return (
               <div
-                key={thread.id}
+                key={`${thread.latestMessage?.accountId ?? ""}:${thread.id}`}
                 onClick={() => onSelectThread(thread)}
                 className={`group relative flex flex-col gap-1.5 p-4 cursor-pointer transition-all ${
                   isSelected
@@ -301,17 +330,17 @@ export function ThreadList({
           })
         )}
 
-        {/* Cursor Pagination Load More Trigger */}
+        {/* Infinite scroll sentinel (button kept as a fallback) */}
         {hasMore && (
-          <div className="p-4 text-center bg-white border-t border-slate-100">
+          <div ref={sentinelRef} className="p-4 text-center bg-white border-t border-slate-100">
             <Button
               variant="ghost"
               size="sm"
               onClick={onLoadMore}
-              disabled={isLoading}
+              disabled={isFetchingMore}
               className="text-xs text-blue-600 hover:text-blue-700 w-full gap-1.5"
             >
-              {isLoading ? (
+              {isFetchingMore ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                   <span>Loading older messages...</span>

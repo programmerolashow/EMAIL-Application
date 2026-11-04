@@ -65,20 +65,29 @@ export const exchangeCodeForAccessToken = async (code: string) => {
   };
 };
 
-export const getAccount = async (accessToken: string, grantId?: string) => {
-  const targetId = grantId && grantId.length > 0 ? grantId : "me";
-  const authHeader = accessToken.startsWith("Bearer ")
-    ? accessToken
-    : `Bearer ${env.NYLAS_API_KEY}`;
+/**
+ * Fetches grant details (email, provider) using the application API key.
+ * Grant-scoped calls never depend on the short-lived user access token.
+ */
+export const getAccount = async (grantId: string) => {
+  if (!grantId) {
+    throw new Error("Cannot load Nylas account details without a grant id.");
+  }
 
-  const response = await fetch(`${env.NYLAS_API_URI}/v3/grants/${targetId}`, {
-    headers: {
-      Authorization: authHeader,
-    },
-  });
+  const response = await fetch(
+    `${env.NYLAS_API_URI}/v3/grants/${encodeURIComponent(grantId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${env.NYLAS_API_KEY}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    }
+  );
 
   if (!response.ok) {
-    throw new Error(`Failed to get account details from Nylas: ${response.statusText}`);
+    const errText = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to get account details from Nylas: ${errText}`);
   }
 
   const result = (await response.json()) as {
@@ -93,8 +102,10 @@ export const getAccount = async (accessToken: string, grantId?: string) => {
   const data = result.data;
   const email = data?.email ?? "";
   return {
-    id: data?.id ?? grantId ?? "",
+    id: data?.id ?? grantId,
     email,
+    provider: data?.provider,
+    grantStatus: data?.grant_status,
     name: email ? email.split("@")[0] ?? "Nylas User" : "Nylas User",
   };
 };

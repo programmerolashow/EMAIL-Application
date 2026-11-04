@@ -16,6 +16,8 @@ export const env = createEnv({
     NYLAS_API_KEY: z.string().min(1, "NYLAS_API_KEY is required"),
     NYLAS_API_URI: z.string().url("NYLAS_API_URI must be a valid URL").default("https://api.us.nylas.com"),
     NYLAS_CALLBACK_URI: z.string().url("NYLAS_CALLBACK_URI must be a valid URL").optional(),
+    // Webhook secret shown by Nylas when the webhook is created; used to verify x-nylas-signature.
+    NYLAS_WEBHOOK_SECRET: z.string().optional(),
 
     // OpenAI Credentials & Configuration
     OPENAI_API_KEY: z.string().optional(),
@@ -51,6 +53,7 @@ export const env = createEnv({
     NYLAS_API_KEY: process.env.NYLAS_API_KEY,
     NYLAS_API_URI: process.env.NYLAS_API_URI,
     NYLAS_CALLBACK_URI: process.env.NYLAS_CALLBACK_URI,
+    NYLAS_WEBHOOK_SECRET: process.env.NYLAS_WEBHOOK_SECRET,
 
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
