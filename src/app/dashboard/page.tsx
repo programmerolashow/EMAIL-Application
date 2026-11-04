@@ -108,6 +108,14 @@ export default function DashboardPage() {
   }, [accounts]);
 
   const [connecting, setConnecting] = useState(false);
+  const removeAccount = api.account.removeAccount.useMutation({
+    onSuccess: (_res, vars) => {
+      if (selectedAccountId === vars.accountId) setSelectedAccountId(undefined);
+      setSelectedThread(null);
+      void utils.account.getAccounts.invalidate();
+      void utils.mail.invalidate();
+    },
+  });
   const handleConnect = async (serviceType: "Google" | "Office365") => {
     try {
       setConnecting(true);
@@ -488,7 +496,7 @@ export default function DashboardPage() {
                 {brokenAccounts.length === 1 ? "needs" : "need"} to be reconnected
               </p>
               <p className="text-amber-800">
-                The provider revoked access (password change or removed permission).{" "}
+                Nylas no longer accepts this connection.{" "}
                 <button
                   disabled={connecting}
                   onClick={() =>
@@ -497,6 +505,16 @@ export default function DashboardPage() {
                   className="font-semibold underline"
                 >
                   Reconnect
+                </button>{" "}
+                or{" "}
+                <button
+                  disabled={removeAccount.isPending}
+                  onClick={() => {
+                    for (const a of brokenAccounts) removeAccount.mutate({ accountId: a.id });
+                  }}
+                  className="font-semibold underline"
+                >
+                  remove {brokenAccounts.length === 1 ? "it" : "them"}
                 </button>
               </p>
             </div>

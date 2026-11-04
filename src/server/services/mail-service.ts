@@ -108,7 +108,7 @@ export class MailService {
 
     const account = accountId
       ? await db.account.findFirst({ where: { id: accountId, userId } })
-      : await db.account.findFirst({ where: { userId }, orderBy: { createdAt: "asc" } });
+      : await this.pickDefaultAccount(userId);
 
     if (!account) {
       throw new Error("No connected email account found for this user.");
@@ -122,6 +122,19 @@ export class MailService {
       console.error(`[MailService] Failed to initialize provider for account ${account.id}:`, err);
       throw new Error("Failed to initialize email provider for the connected account.");
     }
+  }
+
+  /**
+   * Account used when the caller names none (e.g. composing from "All Inboxes"): the newest
+   * mailbox whose Nylas grant is not known to be broken, so a stale row never captures calls.
+   */
+  private static async pickDefaultAccount(userId: string) {
+    const rows = await db.account.findMany({ where: { userId }, orderBy: { createdAt: "desc" } });
+    for (const row of rows) {
+      const health = await this.getGrantHealth(row.providerAccountId ?? row.id);
+      if (health.status !== "invalid") return row;
+    }
+    return rows[0] ?? null;
   }
 
   private static async getAllAccounts(userId: string): Promise<AccountRow[]> {
@@ -293,8 +306,9 @@ export class MailService {
       return value;
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
-      // 404 = grant deleted on the Nylas side: the mailbox must be linked again.
-      if (/\b404\b|not[_ ]found/i.test(message)) {
+      // 401/403/404 on a grant path with a working API key = the grant was deleted, revoked or
+      // belongs to another app (e.g. a pre-Nylas account row): it must be linked again.
+      if (/\b(401|403|404)\b|not[_ ]found|unauthorized/i.test(message)) {
         const value = { status: "invalid" as const };
         grantHealthCache.set(grantId, { at: Date.now(), value });
         return value;
@@ -302,6 +316,16 @@ export class MailService {
       console.error(`[MailService] Grant health check failed for ${grantId}:`, err);
       return { status: "unknown" };
     }
+  }
+
+  /** Removes one of the user's linked mailboxes from the app database. */
+  static async removeAccount(userId: string, accountId: string): Promise<ActionSuccessResponse> {
+    if (!userId) throw new Error("Unauthorized");
+    const row = await db.account.findFirst({ where: { id: accountId, userId } });
+    if (!row) throw new Error("Account not found.");
+    await db.account.delete({ where: { id: row.id } });
+    this.forgetGrant(row.providerAccountId ?? row.id);
+    return { success: true, id: row.id };
   }
 
   /** Drops cached state for a grant (called after a reconnect or a grant webhook). */

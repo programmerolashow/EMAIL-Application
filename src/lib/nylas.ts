@@ -1,19 +1,30 @@
 import "server-only";
+import { headers } from "next/headers";
 import { env } from "@/env";
 
-const getCallbackUrl = () => {
-  if (env.NYLAS_CALLBACK_URI) {
-    return env.NYLAS_CALLBACK_URI;
+/**
+ * Origin of the request being served (http://localhost:3000 in dev, the workers.dev / custom
+ * domain in production). Using the live request means localhost never redirects to production.
+ */
+const getRequestOrigin = async (): Promise<string> => {
+  try {
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    if (host) {
+      const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
+      const proto = h.get("x-forwarded-proto") ?? (isLocal ? "http" : "https");
+      return `${proto}://${host}`;
+    }
+  } catch {
+    // Not inside a request; fall through to configuration.
   }
-  const baseUrl =
-    env.NEXT_PUBLIC_APP_URL ??
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000");
-  return `${baseUrl}/api/nylas/callback`;
+  return env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 };
 
-export const getNylasAuthUrl = (serviceType: "Google" | "Office365") => {
+/** Must be registered in the Nylas dashboard for every origin (localhost and production). */
+const getCallbackUrl = async () => `${await getRequestOrigin()}/api/nylas/callback`;
+
+export const getNylasAuthUrl = async (serviceType: "Google" | "Office365") => {
   const providerMap: Record<"Google" | "Office365", string> = {
     Google: "google",
     Office365: "microsoft",
@@ -21,7 +32,7 @@ export const getNylasAuthUrl = (serviceType: "Google" | "Office365") => {
 
   const params = new URLSearchParams({
     client_id: env.NYLAS_CLIENT_ID,
-    redirect_uri: getCallbackUrl(),
+    redirect_uri: await getCallbackUrl(),
     response_type: "code",
     provider: providerMap[serviceType] ?? "google",
   });
@@ -40,7 +51,7 @@ export const exchangeCodeForAccessToken = async (code: string) => {
       client_secret: env.NYLAS_API_KEY,
       grant_type: "authorization_code",
       code,
-      redirect_uri: getCallbackUrl(),
+      redirect_uri: await getCallbackUrl(),
     }),
   });
 
@@ -87,7 +98,7 @@ export const getAccount = async (grantId: string) => {
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);
-    throw new Error(`Failed to get account details from Nylas: ${errText}`);
+    throw new Error(`Failed to get account details from Nylas [${response.status}]: ${errText}`);
   }
 
   const result = (await response.json()) as {

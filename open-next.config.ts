@@ -1,4 +1,10 @@
 import { defineCloudflareConfig } from "@opennextjs/cloudflare";
 
-// Mail is always read live from Nylas, so no incremental cache is needed.
-export default defineCloudflareConfig({});
+const config = defineCloudflareConfig({});
+
+export default {
+  ...config,
+  // `npm run build` is the Cloudflare build itself (so Workers Builds' default command works);
+  // OpenNext runs the plain Next.js build through this script.
+  buildCommand: "npm run build:next",
+};
