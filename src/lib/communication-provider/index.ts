@@ -6,9 +6,10 @@ export * from "./types";
 export * from "./nylas-provider";
 
 /**
- * Factory function to obtain a CommunicationProvider instance for a given account access token.
+ * Factory function to obtain a CommunicationProvider for a connected account.
+ * For Nylas the account is addressed by its grant id (which is also the Account row id).
  * Hides provider-specific implementation details (e.g. Nylas vs direct APIs) from application callers.
  */
-export function getCommunicationProvider(accessToken: string): CommunicationProvider {
-  return new NylasCommunicationProvider(accessToken);
+export function getCommunicationProvider(grantId: string): CommunicationProvider {
+  return new NylasCommunicationProvider(grantId);
 }

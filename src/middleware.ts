@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { hasSupabaseSessionCookie } from "@/lib/supabase/session-cookie";
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -34,10 +35,11 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh Supabase session & detect authenticated user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Refresh Supabase session & detect authenticated user. Skip the network call entirely when
+  // there is no auth cookie: there's nothing to refresh, and it keeps every anonymous request fast.
+  const user = hasSupabaseSessionCookie(request.cookies.getAll())
+    ? (await supabase.auth.getUser()).data.user
+    : null;
 
   const pathname = request.nextUrl.pathname;
 

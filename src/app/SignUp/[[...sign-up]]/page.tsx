@@ -3,49 +3,60 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { friendlyAuthError } from "@/lib/supabase/auth-errors";
 import { env } from "@/env";
+import { GoogleAuthButton, AuthDivider } from "@/components/auth/GoogleAuthButton";
+import {
+  AuthShell,
+  AuthCard,
+  AuthAlert,
+  authInputClass,
+  authPrimaryButtonClass,
+} from "@/components/auth/AuthLayout";
+
+const MIN_PASSWORD_LENGTH = 8;
 
 export default function SignUpPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+    setNotice(null);
 
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`);
+      return;
+    }
+
+    setLoading(true);
     try {
       const supabase = createClient();
-      const nameParts = fullName.trim().split(" ");
+      const nameParts = fullName.trim().split(/\s+/);
       const firstName = nameParts[0] ?? "User";
       const lastName = nameParts.slice(1).join(" ");
-
-      const baseUrl =
-        env.NEXT_PUBLIC_APP_URL ??
-        (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+      const baseUrl = env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
 
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent("/sign-in")}`,
-          data: {
-            full_name: fullName,
-            first_name: firstName,
-            last_name: lastName,
-          },
+          data: { full_name: fullName.trim(), first_name: firstName, last_name: lastName },
         },
       });
 
       if (signUpError) {
-        setError(signUpError.message);
+        setError(friendlyAuthError(signUpError));
         setLoading(false);
         return;
       }
@@ -53,110 +64,115 @@ export default function SignUpPage() {
       if (data.session) {
         router.push("/dashboard");
         router.refresh();
-      } else {
-        setError("Account created! We've sent a verification email to your address. Please check your inbox and click the link to confirm.");
-        setLoading(false);
+        return;
       }
+
+      setNotice(`Account created. We've sent a verification link to ${email}. Open it to confirm your account.`);
+      setLoading(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      setError(friendlyAuthError(err));
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-100">
-        <div className="text-center space-y-2">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
-            <Mail className="h-6 w-6" />
+    <AuthShell>
+      <AuthCard
+        title="Create your account"
+        subtitle="Start managing your email smarter with E-MassCom."
+        footer={
+          <>
+            Already have an account?{" "}
+            <Link href="/sign-in" className="font-semibold text-blue-600 hover:underline">
+              Sign in
+            </Link>
+          </>
+        }
+      >
+        {error && <AuthAlert kind="error">{error}</AuthAlert>}
+        {notice && <AuthAlert kind="success">{notice}</AuthAlert>}
+
+        <form onSubmit={handleSignUp} className="space-y-4">
+          <div>
+            <label htmlFor="fullName" className="mb-2 block text-sm font-medium text-gray-900">
+              Full name
+            </label>
+            <input
+              id="fullName"
+              type="text"
+              autoComplete="name"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className={authInputClass}
+              placeholder="Jane Doe"
+            />
           </div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-slate-900">
-            Get Started
-          </h2>
-          <p className="text-sm text-slate-500">
-            Create your new E-MassCom account
-          </p>
-        </div>
 
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-4 text-sm text-blue-700 border border-blue-100">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
+          <div>
+            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-900">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={authInputClass}
+              placeholder="you@company.com"
+            />
           </div>
-        )}
 
-        <form className="mt-8 space-y-6" onSubmit={handleSignUp}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Full Name
-              </label>
+          <div>
+            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-900">
+              Password
+            </label>
+            <div className="relative">
               <input
-                type="text"
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
                 required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-colors"
-                placeholder="Jane Doe"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-colors"
-                placeholder="name@company.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Password
-              </label>
-              <input
-                type="password"
-                required
-                minLength={6}
+                minLength={MIN_PASSWORD_LENGTH}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-colors"
-                placeholder="At least 6 characters"
+                className={`${authInputClass} pr-11`}
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
           </div>
 
-          <Button
-            type="submit"
-            disabled={loading}
-            className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition-all"
-          >
+          <button type="submit" disabled={loading} className={authPrimaryButtonClass}>
             {loading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Creating account…
+              </>
             ) : (
-              <span className="flex items-center justify-center gap-2">
-                Create Account
-                <ArrowRight className="h-4 w-4" />
-              </span>
+              "Create account"
             )}
-          </Button>
+          </button>
         </form>
 
-        <div className="text-center text-sm text-slate-500 pt-4 border-t border-slate-100">
-          Already have an account?{" "}
-          <Link
-            href="/sign-in"
-            className="font-semibold text-blue-600 hover:text-blue-700 transition-colors"
-          >
-            Sign in instead
-          </Link>
+        <div className="mt-5 space-y-5">
+          <AuthDivider />
+          <GoogleAuthButton label="Sign up with Google" onError={setError} disabled={loading} />
         </div>
-      </div>
-    </div>
+
+        <p className="mt-5 text-center text-xs leading-relaxed text-gray-400">
+          By creating an account you agree to our Terms of Service and Privacy Policy.
+        </p>
+      </AuthCard>
+    </AuthShell>
   );
 }

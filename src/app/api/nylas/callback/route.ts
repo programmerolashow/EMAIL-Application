@@ -2,6 +2,7 @@ import { exchangeCodeForAccessToken, getAccount } from "@/lib/nylas";
 import { db } from "@/server/db";
 import { createClient } from "@/lib/supabase/server";
 import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
+import { MailService } from "@/server/services/mail-service";
 import { type NextRequest, NextResponse } from "next/server";
 
 export const GET = async (req: NextRequest) => {
@@ -11,7 +12,7 @@ export const GET = async (req: NextRequest) => {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.redirect(new URL("/sign-in", req.url));
   }
 
   // Ensure user is idempotently synced to PostgreSQL
@@ -21,58 +22,79 @@ export const GET = async (req: NextRequest) => {
   const searchParams = req.nextUrl.searchParams;
   const code = searchParams.get("code");
 
+  // Every outcome lands back on the dashboard so the user never sees a raw JSON page.
+  const backToDashboard = (params: Record<string, string>) => {
+    const url = new URL("/dashboard", req.url);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    return NextResponse.redirect(url);
+  };
+
+  const providerError = searchParams.get("error_description") ?? searchParams.get("error");
+  if (providerError) {
+    return backToDashboard({ connect_error: `Connection cancelled: ${providerError}` });
+  }
+
   if (!code) {
-    return NextResponse.json({ error: "No code provided" }, { status: 400 });
+    return backToDashboard({ connect_error: "The provider did not return an authorization code." });
   }
 
   try {
     const token = await exchangeCodeForAccessToken(code);
-    const account = await getAccount(token.accessToken, token.grantId);
 
-    const accountId = account.id || token.grantId;
-
-    if (!accountId || !account?.email) {
-      return NextResponse.json(
-        { error: "Invalid account details returned from Nylas" },
-        { status: 400 }
-      );
+    // The grant id is the durable handle for the mailbox. All mail calls use
+    // /v3/grants/{grantId} with the API key, so the short-lived access token is not relied on.
+    if (!token.grantId) {
+      return backToDashboard({ connect_error: "Nylas did not return a grant id. Please try again." });
     }
 
-    const expiresAt = token.expiresIn
-      ? new Date(Date.now() + token.expiresIn * 1000)
-      : undefined;
+    const account = await getAccount(token.grantId);
+    const accountId = token.grantId;
+
+    if (!account.email) {
+      return backToDashboard({ connect_error: "Nylas returned no email address for this mailbox." });
+    }
+
+    // Refuse to silently move a mailbox that is already linked to a different user.
+    const existing = await db.account.findUnique({
+      where: { id: accountId },
+      select: { userId: true },
+    });
+    if (existing && existing.userId !== userId) {
+      return backToDashboard({ connect_error: "This mailbox is already linked to another user." });
+    }
 
     await db.account.upsert({
       where: { id: accountId },
       update: {
-        userId,
-        accessToken: token.accessToken,
+        // Kept for reference only; never used to call Nylas.
+        accessToken: token.accessToken || accountId,
         refreshToken: null,
         email: account.email,
         name: account.name,
-        expiresAt,
+        expiresAt: null,
         provider: "Nylas",
+        providerAccountId: accountId,
       },
       create: {
         id: accountId,
         userId,
-        accessToken: token.accessToken,
+        accessToken: token.accessToken || accountId,
         refreshToken: null,
         email: account.email,
         name: account.name,
         providerAccountId: accountId,
-        expiresAt,
+        expiresAt: null,
         provider: "Nylas",
       },
     });
 
-    // Redirect to dashboard upon successful connection
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    // Reconnecting reuses the same grant id; clear anything cached about its old state.
+    MailService.forgetGrant(accountId);
+
+    // Open the dashboard on the mailbox that was just connected.
+    return backToDashboard({ account: accountId });
   } catch (error) {
     console.error("Nylas callback error:", error);
-    return NextResponse.json(
-      { error: "Failed to exchange code" },
-      { status: 500 }
-    );
+    return backToDashboard({ connect_error: "We couldn't finish connecting your mailbox. Please try again." });
   }
 };

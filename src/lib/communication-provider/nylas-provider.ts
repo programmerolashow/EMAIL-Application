@@ -9,6 +9,8 @@ import type {
   Contact,
   CalendarEvent,
   EmailAddress,
+  Folder,
+  FolderRole,
 } from "./types";
 
 interface NylasParticipant {
@@ -35,6 +37,8 @@ interface NylasRawMessage {
   snippet?: string;
   date?: number;
   unread?: boolean;
+  starred?: boolean;
+  folders?: string[];
   attachments?: NylasAttachment[];
 }
 
@@ -45,23 +49,95 @@ interface NylasRawThread {
   message_ids?: string[];
 }
 
+interface NylasRawFolder {
+  id: string;
+  name?: string;
+  system_folder?: boolean;
+  attributes?: string[];
+  unread_count?: number;
+  total_count?: number;
+  parent_id?: string;
+}
+
+/** Gmail system label ids -> roles. */
+const GMAIL_ROLE_BY_ID: Record<string, FolderRole> = {
+  INBOX: "inbox",
+  SENT: "sent",
+  DRAFT: "drafts",
+  SPAM: "spam",
+  TRASH: "trash",
+  STARRED: "starred",
+  IMPORTANT: "important",
+};
+
+/** IMAP / Microsoft special-use attributes -> roles. */
+const ROLE_BY_ATTRIBUTE: Record<string, FolderRole> = {
+  "\\inbox": "inbox",
+  "\\sent": "sent",
+  "\\drafts": "drafts",
+  "\\junk": "spam",
+  "\\spam": "spam",
+  "\\trash": "trash",
+  "\\archive": "archive",
+  "\\all": "all",
+  "\\flagged": "starred",
+  "\\important": "important",
+};
+
+/** Folder display names (Outlook / generic IMAP) -> roles, used when no attribute is present. */
+const ROLE_BY_NAME: Record<string, FolderRole> = {
+  inbox: "inbox",
+  "sent items": "sent",
+  sent: "sent",
+  "sent mail": "sent",
+  drafts: "drafts",
+  "junk email": "spam",
+  junk: "spam",
+  spam: "spam",
+  "deleted items": "trash",
+  trash: "trash",
+  archive: "archive",
+};
+
+const GMAIL_CATEGORY_NAMES: Record<string, string> = {
+  CATEGORY_PERSONAL: "Primary",
+  CATEGORY_SOCIAL: "Social",
+  CATEGORY_PROMOTIONS: "Promotions",
+  CATEGORY_UPDATES: "Updates",
+  CATEGORY_FORUMS: "Forums",
+};
+
+/** Gmail pseudo-labels that are not real mailboxes. */
+const HIDDEN_FOLDER_IDS = new Set(["UNREAD", "CHAT"]);
+
+/**
+ * Nylas v3 provider.
+ *
+ * Every call is made server-side against `/v3/grants/{grantId}` with the application API key.
+ * Grants do not expire the way per-user access tokens do (~1h), so a linked mailbox stays
+ * accessible for as long as the grant itself is valid.
+ */
 export class NylasCommunicationProvider implements CommunicationProvider {
   private readonly baseUrl = env.NYLAS_API_URI;
+  private readonly grantPath: string;
 
-  constructor(private readonly accessToken: string) {}
+  constructor(private readonly grantId: string) {
+    if (!grantId) {
+      throw new Error("Nylas grant id is required.");
+    }
+    this.grantPath = `/v3/grants/${encodeURIComponent(grantId)}`;
+  }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const authHeader = this.accessToken.startsWith("Bearer ")
-      ? this.accessToken
-      : `Bearer ${this.accessToken}`;
-
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers: {
-        Authorization: authHeader,
+        Authorization: `Bearer ${env.NYLAS_API_KEY}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
         ...options.headers,
       },
+      cache: "no-store",
     });
 
     if (!response.ok) {
@@ -69,6 +145,10 @@ export class NylasCommunicationProvider implements CommunicationProvider {
       throw new Error(
         `Nylas API request failed [${response.status} ${response.statusText}]: ${errText}`
       );
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
     }
 
     return (await response.json()) as T;
@@ -86,6 +166,9 @@ export class NylasCommunicationProvider implements CommunicationProvider {
 
   private mapMessage(raw: NylasRawMessage): Message {
     const sentDate = raw.date ? new Date(raw.date * 1000).toISOString() : undefined;
+    const flags: string[] = [...(raw.folders ?? [])];
+    if (raw.unread) flags.push("unread");
+    if (raw.starred) flags.push("starred");
     return {
       id: raw.id,
       threadId: raw.thread_id,
@@ -99,6 +182,8 @@ export class NylasCommunicationProvider implements CommunicationProvider {
       sentAt: sentDate,
       receivedAt: sentDate,
       isRead: raw.unread !== undefined ? !raw.unread : true,
+      flags,
+      folders: raw.folders ?? [],
       attachments: raw.attachments?.map((att) => ({
         id: att.id,
         name: att.filename ?? "attachment",
@@ -108,13 +193,51 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     };
   }
 
-  async listMessages(params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }> {
+  private mapFolder(raw: NylasRawFolder): Folder {
+    const id = raw.id;
+    const upperId = id.toUpperCase();
+    const name = raw.name ?? id;
+
+    let role: FolderRole | undefined = GMAIL_ROLE_BY_ID[upperId];
+    if (!role && raw.attributes?.length) {
+      for (const attr of raw.attributes) {
+        const match = ROLE_BY_ATTRIBUTE[attr.toLowerCase()];
+        if (match) {
+          role = match;
+          break;
+        }
+      }
+    }
+    // Name matching is a last resort and never applies to Gmail user labels (ids "Label_…"),
+    // so a user label called "Archive" stays a plain label.
+    if (!role && raw.system_folder !== false && !/^Label_/i.test(id)) {
+      role = ROLE_BY_NAME[name.trim().toLowerCase()];
+    }
+
+    const isCategory = upperId.startsWith("CATEGORY_");
+
+    return {
+      id,
+      name: GMAIL_CATEGORY_NAMES[upperId] ?? name,
+      role,
+      isCategory,
+      unreadCount: raw.unread_count ?? 0,
+      totalCount: raw.total_count ?? 0,
+      parentId: raw.parent_id,
+    };
+  }
+
+  private buildListQuery(params?: ListParams): URLSearchParams {
     const query = new URLSearchParams();
     if (params?.limit) query.set("limit", String(params.limit));
     if (params?.pageToken) query.set("page_token", params.pageToken);
+    if (params?.folderId) query.set("in", params.folderId);
+    return query;
+  }
 
-    const queryString = query.toString();
-    const path = `/v3/grants/me/messages${queryString ? `?${queryString}` : ""}`;
+  async listMessages(params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }> {
+    const queryString = this.buildListQuery(params).toString();
+    const path = `${this.grantPath}/messages${queryString ? `?${queryString}` : ""}`;
     const result = await this.request<{ data: NylasRawMessage[]; next_page_token?: string }>(path);
 
     return {
@@ -123,19 +246,56 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     };
   }
 
+  async listDrafts(params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }> {
+    const queryString = this.buildListQuery({ ...params, folderId: undefined }).toString();
+    const path = `${this.grantPath}/drafts${queryString ? `?${queryString}` : ""}`;
+    const result = await this.request<{ data: NylasRawMessage[]; next_page_token?: string }>(path);
+
+    return {
+      messages: (result.data ?? []).map((m) => this.mapMessage(m)),
+      nextPageToken: result.next_page_token,
+    };
+  }
+
+  async listFolders(): Promise<Folder[]> {
+    const folders: Folder[] = [];
+    let pageToken: string | undefined;
+    // Gmail accounts can have hundreds of labels, so page through them.
+    for (let i = 0; i < 20; i++) {
+      const query = new URLSearchParams({ limit: "200" });
+      if (pageToken) query.set("page_token", pageToken);
+      const result = await this.request<{ data: NylasRawFolder[]; next_page_token?: string }>(
+        `${this.grantPath}/folders?${query.toString()}`
+      );
+      for (const raw of result.data ?? []) {
+        if (HIDDEN_FOLDER_IDS.has(raw.id.toUpperCase())) continue;
+        folders.push(this.mapFolder(raw));
+      }
+      pageToken = result.next_page_token;
+      if (!pageToken) break;
+    }
+    return folders;
+  }
+
   async getMessage(id: string): Promise<Message> {
-    const result = await this.request<{ data: NylasRawMessage }>(`/v3/grants/me/messages/${encodeURIComponent(id)}`);
+    const result = await this.request<{ data: NylasRawMessage }>(
+      `${this.grantPath}/messages/${encodeURIComponent(id)}`
+    );
     return this.mapMessage(result.data);
   }
 
   async getThread(id: string): Promise<Thread> {
-    const result = await this.request<{ data: NylasRawThread }>(`/v3/grants/me/threads/${encodeURIComponent(id)}`);
+    const result = await this.request<{ data: NylasRawThread }>(
+      `${this.grantPath}/threads/${encodeURIComponent(id)}`
+    );
     const rawThread = result.data;
 
     const msgsResult = await this.request<{ data: NylasRawMessage[] }>(
-      `/v3/grants/me/messages?thread_id=${encodeURIComponent(id)}`
+      `${this.grantPath}/messages?thread_id=${encodeURIComponent(id)}&limit=100`
     );
-    const messages = (msgsResult.data ?? []).map((m) => this.mapMessage(m));
+    const messages = (msgsResult.data ?? [])
+      .map((m) => this.mapMessage(m))
+      .sort((a, b) => (a.sentAt ?? "").localeCompare(b.sentAt ?? ""));
 
     return {
       id: rawThread.id,
@@ -146,11 +306,13 @@ export class NylasCommunicationProvider implements CommunicationProvider {
   }
 
   async searchMessages(query: string, params?: ListParams): Promise<{ messages: Message[]; nextPageToken?: string }> {
-    const searchParams = new URLSearchParams({ q: query });
+    // Nylas v3 passes provider-native search syntax through `search_query_native`
+    // (Gmail operators for Google, KQL for Microsoft). `q` is not a v3 parameter.
+    const searchParams = new URLSearchParams({ search_query_native: query });
     if (params?.limit) searchParams.set("limit", String(params.limit));
     if (params?.pageToken) searchParams.set("page_token", params.pageToken);
 
-    const path = `/v3/grants/me/messages?${searchParams.toString()}`;
+    const path = `${this.grantPath}/messages?${searchParams.toString()}`;
     const result = await this.request<{ data: NylasRawMessage[]; next_page_token?: string }>(path);
 
     return {
@@ -166,9 +328,18 @@ export class NylasCommunicationProvider implements CommunicationProvider {
       cc: params.cc?.map((addr) => ({ name: addr.name, email: addr.address })),
       bcc: params.bcc?.map((addr) => ({ name: addr.name, email: addr.address })),
       body: params.body,
+      reply_to_message_id: params.replyToMessageId,
+      attachments: params.attachments?.length
+        ? params.attachments.map((file) => ({
+            filename: file.filename,
+            content_type: file.contentType,
+            size: file.size,
+            content: file.contentBase64,
+          }))
+        : undefined,
     };
 
-    const result = await this.request<{ data: { id: string } }>("/v3/grants/me/messages/send", {
+    const result = await this.request<{ data: { id: string } }>(`${this.grantPath}/messages/send`, {
       method: "POST",
       body: JSON.stringify(payload),
     });
@@ -183,9 +354,10 @@ export class NylasCommunicationProvider implements CommunicationProvider {
       cc: params.cc?.map((addr) => ({ name: addr.name, email: addr.address })),
       bcc: params.bcc?.map((addr) => ({ name: addr.name, email: addr.address })),
       body: params.body,
+      reply_to_message_id: params.replyToMessageId,
     };
 
-    const result = await this.request<{ data: { id: string } }>("/v3/grants/me/drafts", {
+    const result = await this.request<{ data: { id: string } }>(`${this.grantPath}/drafts`, {
       method: "POST",
       body: JSON.stringify(payload),
     });
@@ -200,35 +372,50 @@ export class NylasCommunicationProvider implements CommunicationProvider {
       cc: params.cc?.map((addr) => ({ name: addr.name, email: addr.address })),
       bcc: params.bcc?.map((addr) => ({ name: addr.name, email: addr.address })),
       body: params.body,
+      reply_to_message_id: params.replyToMessageId,
     };
 
-    const result = await this.request<{ data: { id: string } }>(`/v3/grants/me/drafts/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
+    const result = await this.request<{ data: { id: string } }>(
+      `${this.grantPath}/drafts/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
+    );
 
     return { id: result.data.id };
   }
 
   async deleteDraft(id: string): Promise<{ success: boolean }> {
-    await this.request<unknown>(`/v3/grants/me/drafts/${encodeURIComponent(id)}`, {
+    await this.request<unknown>(`${this.grantPath}/drafts/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
     return { success: true };
   }
 
   async markRead(id: string, isRead: boolean): Promise<{ success: boolean }> {
-    await this.request<unknown>(`/v3/grants/me/messages/${encodeURIComponent(id)}`, {
-      method: "PATCH",
+    // Nylas v3 updates messages with PUT.
+    await this.request<unknown>(`${this.grantPath}/messages/${encodeURIComponent(id)}`, {
+      method: "PUT",
       body: JSON.stringify({ unread: !isRead }),
     });
     return { success: true };
   }
 
-  async archive(id: string): Promise<{ success: boolean }> {
-    await this.request<unknown>(`/v3/grants/me/messages/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ folders: ["archive"] }),
+  async archive(id: string, archiveFolderId?: string, inboxFolderId = "INBOX"): Promise<{ success: boolean }> {
+    let folders: string[];
+    if (archiveFolderId) {
+      // Outlook / IMAP: move the message into the Archive folder.
+      folders = [archiveFolderId];
+    } else {
+      // Gmail: archiving removes the INBOX label and keeps every other label.
+      const message = await this.getMessage(id);
+      folders = (message.folders ?? []).filter((f) => f !== inboxFolderId);
+    }
+
+    await this.request<unknown>(`${this.grantPath}/messages/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ folders }),
     });
     return { success: true };
   }
@@ -239,7 +426,7 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     if (params?.pageToken) query.set("page_token", params.pageToken);
 
     const queryString = query.toString();
-    const path = `/v3/grants/me/contacts${queryString ? `?${queryString}` : ""}`;
+    const path = `${this.grantPath}/contacts${queryString ? `?${queryString}` : ""}`;
     const result = await this.request<{
       data: Array<{
         id?: string;
@@ -275,7 +462,7 @@ export class NylasCommunicationProvider implements CommunicationProvider {
         surname?: string;
         emails?: Array<{ email?: string }>;
       };
-    }>(`/v3/grants/me/contacts/${encodeURIComponent(id)}`);
+    }>(`${this.grantPath}/contacts/${encodeURIComponent(id)}`);
     const c = result.data;
     const surname = c.surname ? ` ${c.surname}` : "";
     return {
@@ -293,7 +480,7 @@ export class NylasCommunicationProvider implements CommunicationProvider {
     if (params?.pageToken) query.set("page_token", params.pageToken);
 
     const queryString = query.toString();
-    const path = `/v3/grants/me/events${queryString ? `?${queryString}` : ""}`;
+    const path = `${this.grantPath}/events${queryString ? `?${queryString}` : ""}`;
     const result = await this.request<{
       data: Array<{
         id?: string;

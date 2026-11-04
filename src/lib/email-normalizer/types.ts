@@ -42,6 +42,10 @@ export interface NormalizedMessage {
   isRead: boolean;
   flags: string[];
   attachments: Attachment[];
+  /** Connected account (Nylas grant) this message belongs to. Set by MailService. */
+  accountId?: string;
+  /** Email address of that connected account, for display in unified views. */
+  accountEmail?: string;
   providerMetadata?: Record<string, unknown>;
 }
 

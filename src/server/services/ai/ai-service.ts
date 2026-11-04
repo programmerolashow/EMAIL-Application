@@ -223,7 +223,7 @@ export class AIService {
       ? thread.subject.toLowerCase().startsWith("re:")
         ? thread.subject
         : `Re: ${thread.subject}`
-      : "Draft Subject";
+      : "";
 
     const fallbackBody = `Hi,\n\n${instruction}\n\n[Configure OPENAI_API_KEY for automated GPT draft generation.]`;
 
