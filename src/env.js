@@ -32,6 +32,16 @@ export const env = createEnv({
     // OpenAI Credentials & Configuration
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().default("gpt-4o-mini"),
+    OPENAI_TRANSCRIBE_MODEL: z.string().default("gpt-4o-mini-transcribe"),
+
+    // Google Gemini: fallback when OpenAI fails. GEMINI_MODEL is a comma-separated list tried in order.
+    // Needs an API key from https://aistudio.google.com
+    // (Google OAuth client id/secret cannot be used for this).
+    GEMINI_API_KEY: z.string().optional(),
+    GEMINI_MODEL: z.string().default("gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"),
+
+    // Comma-separated emails with unlimited AI use (for testing). Leave unset in production.
+    AI_UNLIMITED_EMAILS: z.string().optional(),
 
 
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
@@ -63,6 +73,10 @@ export const env = createEnv({
 
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
+    OPENAI_TRANSCRIBE_MODEL: process.env.OPENAI_TRANSCRIBE_MODEL,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GEMINI_MODEL: process.env.GEMINI_MODEL,
+    AI_UNLIMITED_EMAILS: process.env.AI_UNLIMITED_EMAILS,
 
 
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,

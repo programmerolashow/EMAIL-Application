@@ -1,10 +1,11 @@
 import "server-only";
+import { env } from "@/env";
 import { db } from "@/server/db";
 import { UserFacingError } from "@/server/lib/errors";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Every AI feature has its own allowance: 5 uses per rolling 7 days, per user. */
+/** Every AI feature has its own allowance per rolling 7 days, per user (see AI_FEATURE_LIMITS). */
 export const AI_FEATURES = {
   summarize: "AI summary",
   intelligence: "thread intelligence",
@@ -13,10 +14,17 @@ export const AI_FEATURES = {
   rewrite: "rewrite",
   compose: "AI draft generation",
   ask: "Ask AI",
+  translate: "email translation",
+  transcribe: "voice transcription",
 } as const;
 export type AiFeature = keyof typeof AI_FEATURES;
 
 export const AI_LIMIT = 5;
+/** Everyday tools get a larger weekly allowance than the default AI_LIMIT. */
+const AI_FEATURE_LIMITS: Partial<Record<AiFeature, number>> = {
+  translate: 30,
+  transcribe: 30,
+};
 export const AI_WINDOW_MS = 7 * DAY_MS;
 
 /** Non-AI abuse guard: outgoing mail per user per day. */
@@ -32,13 +40,15 @@ interface Rule {
 
 const aiRule = (feature: AiFeature): Rule => ({
   key: `ai:${feature}`,
-  limit: AI_LIMIT,
+  limit: AI_FEATURE_LIMITS[feature] ?? AI_LIMIT,
   windowMs: AI_WINDOW_MS,
   label: AI_FEATURES[feature],
 });
 const sendRule: Rule = { key: "mail:send", limit: SEND_LIMIT, windowMs: SEND_WINDOW_MS, label: "sent emails" };
 
 export interface QuotaStatus {
+  /** True for accounts listed in AI_UNLIMITED_EMAILS: no weekly cap applies. */
+  unlimited?: boolean;
   limit: number;
   used: number;
   remaining: number;
@@ -95,7 +105,7 @@ async function withQuota<T>(userId: string, rule: Rule, work: () => Promise<T>):
         ? formatDate(new Date(oldest.createdAt.getTime() + rule.windowMs).toISOString())
         : "later";
       throw new UserFacingError(
-        `You've used all ${rule.limit} ${rule.label} runs for this week. Your next one is available on ${resetsAt}.`,
+        `You've used all ${rule.limit} of your ${rule.label} uses for this week. You can use it again on ${resetsAt}.`,
         "TOO_MANY_REQUESTS"
       );
     }
@@ -111,19 +121,39 @@ async function withQuota<T>(userId: string, rule: Rule, work: () => Promise<T>):
   }
 }
 
+/** Emails from AI_UNLIMITED_EMAILS (comma-separated), lower-cased. */
+function unlimitedEmails(): Set<string> {
+  return new Set(
+    (env.AI_UNLIMITED_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+async function hasUnlimitedAi(userId: string): Promise<boolean> {
+  const emails = unlimitedEmails();
+  if (emails.size === 0) return false;
+  const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
+  return !!user && emails.has(user.email.trim().toLowerCase());
+}
+
 export const UsageLimits = {
   /** Remaining allowance for every AI feature (for the UI counters). */
   async aiStatus(userId: string): Promise<Record<AiFeature, QuotaStatus>> {
+    const unlimited = await hasUnlimitedAi(userId);
     const entries = await Promise.all(
-      (Object.keys(AI_FEATURES) as AiFeature[]).map(
-        async (f) => [f, await statusFor(userId, aiRule(f))] as const
-      )
+      (Object.keys(AI_FEATURES) as AiFeature[]).map(async (f) => {
+        const status = await statusFor(userId, aiRule(f));
+        return [f, unlimited ? { ...status, unlimited, remaining: status.limit, resetsAt: null } : status] as const;
+      })
     );
     return Object.fromEntries(entries) as Record<AiFeature, QuotaStatus>;
   },
 
-  /** Runs one counted use of an AI feature (5 per feature per 7 days). */
-  consumeAi<T>(userId: string, feature: AiFeature, work: () => Promise<T>): Promise<T> {
+  /** Runs one counted use of an AI feature (per-feature weekly allowance). */
+  async consumeAi<T>(userId: string, feature: AiFeature, work: () => Promise<T>): Promise<T> {
+    if (await hasUnlimitedAi(userId)) return work();
     return withQuota(userId, aiRule(feature), work);
   },
 

@@ -66,7 +66,10 @@ export class AIContextBuilder {
    * Stage 1 & Stage 2: Extracts ONLY the minimal fields required from a single NormalizedMessage.
    * Strips DB IDs, access tokens, provider metadata, raw headers, and internal flags.
    */
-  public static extractMinimalMessage(msg: NormalizedMessage): MinimalMessageContext {
+  public static extractMinimalMessage(
+    msg: NormalizedMessage,
+    maxBodyLength: number = this.MAX_BODY_LENGTH_PER_MSG
+  ): MinimalMessageContext {
     const sender = this.formatParticipant(msg.from);
     const recipientsList = (msg.to ?? [])
       .map((p) => this.formatParticipant(p))
@@ -78,7 +81,7 @@ export class AIContextBuilder {
       sender,
       recipients: recipientsList || "Undisclosed Recipients",
       date: msg.receivedAt || msg.sentAt || "Unknown Date",
-      body: this.sanitizeText(msg.body || msg.snippet, this.MAX_BODY_LENGTH_PER_MSG),
+      body: this.sanitizeText(msg.body || msg.snippet, maxBodyLength),
     };
   }
 
@@ -86,32 +89,44 @@ export class AIContextBuilder {
    * Stage 4 & Stage 5: Limit Context Size & Build Minimal Thread Context.
    * Applies character budget caps and message limits so OpenAI receives minimum necessary context.
    */
-  public static buildThreadContext(thread: EmailThread): string {
+  public static buildThreadContext(
+    thread: EmailThread,
+    budget: { maxMessages?: number; perMessageChars?: number; totalChars?: number } = {}
+  ): string {
+    const maxMessages = budget.maxMessages ?? this.MAX_MESSAGES_PER_THREAD;
+    const perMessageChars = budget.perMessageChars ?? this.MAX_BODY_LENGTH_PER_MSG;
+    const totalChars = budget.totalChars ?? this.MAX_TOTAL_CONTEXT_CHARS;
     const participantsList = thread.participants
       .map((p) => this.formatParticipant(p))
       .filter(Boolean)
       .join(", ");
 
-    // Take only the most recent N messages in thread to enforce context budget
-    const recentMessages = thread.messages.slice(-this.MAX_MESSAGES_PER_THREAD);
+    // Take only the most recent N messages, filling the budget newest-first so that the latest
+    // messages are never the ones dropped; then restore chronological order.
+    const recentMessages = thread.messages.slice(-maxMessages);
 
     let currentLength = 0;
     const formattedMessages: string[] = [];
+    let truncated = false;
 
-    for (let i = 0; i < recentMessages.length; i++) {
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
       const msg = recentMessages[i];
       if (!msg) continue;
 
-      const minimal = this.extractMinimalMessage(msg);
-      const entry = `[Msg ${i + 1}] Date: ${minimal.date} | From: ${minimal.sender}\nBody: ${minimal.body}`;
+      const minimal = this.extractMinimalMessage(msg, perMessageChars);
+      const entry = `[Msg ${i + 1}] Date: ${minimal.date} | From: ${minimal.sender} | To: ${minimal.recipients}
+Body: ${minimal.body}`;
 
-      if (currentLength + entry.length > this.MAX_TOTAL_CONTEXT_CHARS) {
-        formattedMessages.push("[Remaining older messages truncated for privacy & token efficiency]");
+      if (currentLength + entry.length > totalChars && formattedMessages.length > 0) {
+        truncated = true;
         break;
       }
 
-      formattedMessages.push(entry);
+      formattedMessages.unshift(entry);
       currentLength += entry.length;
+    }
+    if (truncated || thread.messages.length > recentMessages.length) {
+      formattedMessages.unshift("[Older messages omitted]");
     }
 
     return `THREAD SUBJECT: ${this.sanitizeText(thread.subject || "No Subject", 100)}

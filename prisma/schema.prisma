@@ -16,6 +16,8 @@ model User {
   imageURL       String
   /// Subscription plan id (see src/server/services/plans.ts). Changed in the DB until payments exist.
   plan           String         @default("free")
+  /// ISO 3166-1 alpha-2 country, chosen at sign-up (or in the dashboard prompt). Sets the billing currency.
+  country        String?
   accounts       Account[]
   aiResults      AiResult[]
   usageEvents    UsageEvent[]

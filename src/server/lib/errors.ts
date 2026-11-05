@@ -25,7 +25,10 @@ export class NylasApiError extends UserFacingError {
   readonly requestId?: string;
 
   constructor(status: number, nylasMessage: string, nylasType?: string, requestId?: string) {
-    super(describeNylasError(status, nylasMessage, nylasType), codeForStatus(status));
+    super(describeNylasError(status, nylasType), codeForStatus(status));
+    console.error(
+      `[Nylas] ${status} ${nylasType ?? ""} ${nylasMessage}${requestId ? ` (request ${requestId})` : ""}`
+    );
     this.name = "NylasApiError";
     this.status = status;
     this.nylasType = nylasType;
@@ -78,22 +81,21 @@ function codeForStatus(status: number): TRPC_ERROR_CODE_KEY {
   return "BAD_REQUEST";
 }
 
-/** Plain-language explanation followed by Nylas' actual error message. */
-function describeNylasError(status: number, message: string, type?: string): string {
-  const detail = `(Nylas: ${message})`;
+/** Plain-language explanation for the user. Nylas' raw message is logged, not shown. */
+function describeNylasError(status: number, type?: string): string {
   if (status === 401 || status === 403 || type === "token.unauthorized_access") {
-    return `This mailbox's connection is no longer valid, so it has to be reconnected. ${detail}`;
+    return "We lost the connection to this mailbox. Please reconnect it to keep using it.";
   }
   if (status === 404) {
-    return `The requested email, folder or mailbox no longer exists. ${detail}`;
+    return "This email, folder or mailbox no longer exists. It may have been moved or deleted.";
   }
   if (status === 429) {
-    return `Your mail provider is rate-limiting requests right now. Wait a minute and try again. ${detail}`;
+    return "Your email provider is limiting requests right now. Please wait a minute and try again.";
   }
   if (status >= 500) {
-    return `Your mail provider is temporarily unavailable. Try again shortly. ${detail}`;
+    return "Your email provider is temporarily unavailable. Please try again shortly.";
   }
-  return `The mail provider rejected the request. ${detail}`;
+  return "Your email provider couldn't complete this request. Please try again.";
 }
 
 /** Message safe to show the user for any thrown value. */
@@ -121,7 +123,8 @@ export function toUserFacing(error: unknown, fallback: string): UserFacingError 
 export function describeKnownError(error: unknown): string | undefined {
   const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
   if (code === "P2021" || code === "P2022") {
-    return "The database hasn't been updated for this feature yet (a table or column is missing). Apply the latest schema with `npx prisma db push`, then try again.";
+    console.error("[DB] Schema is behind the code (P2021/P2022): apply the latest Prisma schema.");
+    return "This feature is being updated and isn't available yet. Please try again later.";
   }
   if (code === "P1001" || code === "P1002") {
     return "Couldn't reach the database. Try again in a moment.";

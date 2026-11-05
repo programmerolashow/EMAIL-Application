@@ -18,7 +18,11 @@ export class ThreadIntelligenceService {
   public static async analyze(
     thread: EmailThread
   ): Promise<ThreadIntelligenceResult> {
-    const context = AIContextBuilder.buildThreadContext(thread);
+    const context = AIContextBuilder.buildThreadContext(thread, {
+      maxMessages: 15,
+      perMessageChars: 3000,
+      totalChars: 20000,
+    });
 
     const fallbackOverview = `Thread Intelligence for "${thread.subject}": ${thread.metadata.messageCount} messages exchanged.`;
     const fallbackNextAction = "Review thread and follow up with participants.";
@@ -47,44 +51,36 @@ export class ThreadIntelligenceService {
       nextRecommendedAction: fallbackNextAction,
     };
 
-    const systemPrompt = `You are a conversation intelligence engine for executive email threads.
-Analyze the normalized email thread and output JSON matching the exact schema below:
+    const systemPrompt = `You are a conversation analyst. Explain an email thread to a busy person who has not read it, so they understand the whole story and what to do next.
+Be specific: use the real names, organisations, amounts, dates and topics from the thread.
 
+Return ONLY a JSON object with this exact shape:
 {
-  "conversationOverview": "High-level summary of discussion",
+  "conversationOverview": "5-8 sentences: what the conversation is about and why it started, who the main participants are and what each wants, how the discussion developed, what has been settled, and where things stand right now (who is waiting on whom).",
   "timeline": [
-    { "time": "Date/Time string", "speaker": "Name or Email of who said what", "event": "Key point or proposal made" }
+    { "time": "Date/time of the message", "speaker": "Name of the sender", "event": "One or two sentences on what this person said, asked, proposed or agreed in that message" }
   ],
-  "keyDecisions": [
-    "Confirmed decision 1",
-    "Agreed point 2"
-  ],
-  "outstandingQuestions": [
-    "Unresolved question 1",
-    "Open issue 2"
-  ],
+  "keyDecisions": ["Each decision or agreement that was explicitly reached, as a full sentence that says who agreed to what. Empty array if none."],
+  "outstandingQuestions": ["Each question or issue still unanswered, and who needs to answer it. Empty array if none."],
   "deliverables": [
-    { "item": "Task or deliverable", "owner": "Assigned Person", "deadline": "Explicit Date or Unspecified", "status": "Pending" }
+    { "item": "The task or deliverable, described specifically", "owner": "Person responsible", "deadline": "Explicit date or Unspecified", "status": "Pending, In progress, Done, or Blocked, based on the thread" }
   ],
-  "recommendedNextActions": [
-    "Recommended next step 1"
-  ]
+  "recommendedNextActions": ["2-4 practical next steps for the reader, most important first"]
 }
 
-STRICT ANTI-FABRICATION POLICY:
-1. Identify who said what (timeline with speaker and event).
-2. Identify what decisions were explicitly agreed upon.
-3. Identify unresolved questions or outstanding open items.
-4. Identify who owes what deliverables.
-5. NEVER fabricate or invent responsibilities, task owners, or completion deadlines.
-6. If task ownership is ambiguous, explicitly represent owner as "Unknown / Unassigned".
-7. If a deadline is not explicitly mentioned in the text, explicitly represent deadline as "Unspecified".`;
+STRICT RULES:
+1. The timeline has one entry per message, in chronological order.
+2. Use only what is in the thread. NEVER invent decisions, owners, deadlines, amounts or facts.
+3. If ownership is unclear, use "Unknown / Unassigned". If no deadline is stated, use "Unspecified".
+4. Write in plain, clear English, even if the thread is in another language.`;
 
     return AIService.completeStructured<ThreadIntelligenceResult>(
       {
         systemPrompt,
         userPrompt: context,
         temperature: 0.2,
+        maxTokens: 2500,
+        timeoutMs: 50_000,
       },
       fallback,
       threadIntelligenceSchema

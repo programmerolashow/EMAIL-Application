@@ -64,13 +64,10 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
     if (hideInternal) console.error("[tRPC] Internal error:", error);
     return {
       ...shape,
-      message: userFacing
-        ? userFacing.message
-        : known
-          ? known
-          : hideInternal
-          ? "Something went wrong on our side. Please try again."
-          : shape.message,
+      message:
+        userFacing?.message ??
+        known ??
+        (hideInternal ? "Something went wrong on our side. Please try again." : shape.message),
       data: {
         ...shape.data,
         // The real category (TOO_MANY_REQUESTS, UNAUTHORIZED, ...) so the client can react to it.

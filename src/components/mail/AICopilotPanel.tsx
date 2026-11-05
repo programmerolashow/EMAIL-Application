@@ -927,6 +927,7 @@ export function AICopilotPanel({
 }
 
 interface QuotaInfo {
+  unlimited?: boolean;
   limit: number;
   used: number;
   remaining: number;
@@ -939,6 +940,7 @@ const formatReset = (iso: string) =>
 /** "3 of 5 runs left this week" (or when the next run unlocks). */
 function QuotaNote({ quota }: { quota?: QuotaInfo }) {
   if (!quota) return null;
+  if (quota.unlimited) return <p className="text-[0.6875rem] text-slate-500">Unlimited use on this account.</p>;
   return (
     <p className={`text-[0.6875rem] ${quota.remaining === 0 ? "text-amber-700" : "text-slate-500"}`}>
       {quota.remaining === 0 && quota.resetsAt

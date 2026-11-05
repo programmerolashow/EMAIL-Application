@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { AIService } from "@/server/services/ai/ai-service";
+import { TRANSLATION_LANGUAGE_CODES } from "@/lib/languages";
+
+/** Vercel rejects request bodies over 4.5 MB; base64 adds a third, so cap the clip at ~3 MB. */
+const MAX_AUDIO_BASE64_CHARS = 4_000_000;
 
 const replyToneEnum = z.enum([
   "Professional",
@@ -222,6 +226,32 @@ export const aiRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       return AIService.rewriteDraft(ctx.auth.userId, input.draftText, input.option, input.customPrompt);
+    }),
+
+  /** Translates one received email; saved per message + language. */
+  translateEmail: protectedProcedure
+    .input(
+      z.object({
+        messageId: z.string().min(1),
+        targetLanguage: z.enum(TRANSLATION_LANGUAGE_CODES),
+        accountId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return AIService.translateEmail(ctx.auth.userId, input.messageId, input.targetLanguage, input.accountId);
+    }),
+
+  /** Speech-to-text for dictation. Audio arrives base64-encoded from the browser recorder. */
+  transcribeAudio: protectedProcedure
+    .input(
+      z.object({
+        audioBase64: z.string().min(1).max(MAX_AUDIO_BASE64_CHARS, "Recording is too long. Keep it under 2 minutes."),
+        mimeType: z.string().regex(/^audio\/[a-z0-9.+-]+(;.*)?$/i, "Unsupported audio format"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const audio = Buffer.from(input.audioBase64, "base64");
+      return { text: await AIService.transcribeAudio(ctx.auth.userId, audio, input.mimeType.split(";")[0]!) };
     }),
 
   /**
