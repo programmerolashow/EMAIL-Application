@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthError } from "@/lib/supabase/auth-errors";
 import { GoogleAuthButton, AuthDivider } from "@/components/auth/GoogleAuthButton";
+import { CountrySelect } from "@/components/CountrySelect";
+import { guessCountryFromBrowser, type CountryCode } from "@/lib/countries";
 import {
   AuthShell,
   AuthCard,
@@ -21,16 +23,27 @@ export default function SignUpPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [country, setCountry] = useState<CountryCode | "">("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // Pre-select the likely country after mount (the browser isn't available during SSR).
+  useEffect(() => {
+    setCountry((current) => current || (guessCountryFromBrowser() ?? ""));
+  }, []);
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setNotice(null);
+
+    if (!country) {
+      setError("Select the country you're based in.");
+      return;
+    }
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for your password.`);
@@ -51,7 +64,7 @@ export default function SignUpPage() {
         password,
         options: {
           emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent("/sign-in")}`,
-          data: { full_name: fullName.trim(), first_name: firstName, last_name: lastName },
+          data: { full_name: fullName.trim(), first_name: firstName, last_name: lastName, country },
         },
       });
 
@@ -123,6 +136,14 @@ export default function SignUpPage() {
               className={authInputClass}
               placeholder="you@company.com"
             />
+          </div>
+
+          <div>
+            <label htmlFor="country" className="mb-2 block text-sm font-medium text-gray-900">
+              Country
+            </label>
+            <CountrySelect id="country" value={country} onChange={setCountry} className={authInputClass} />
+            <p className="mt-1.5 text-xs text-gray-500">Plan prices are shown in your local currency.</p>
           </div>
 
           <div>

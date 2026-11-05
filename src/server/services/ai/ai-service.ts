@@ -615,7 +615,9 @@ function toProviderFailure(provider: string, error: unknown): ProviderFailure {
       : typeof error === "object" && error !== null && "status" in error
         ? Number(error.status)
         : 0;
-  console.error(`❌ [AIService] ${provider} call failed [status=${status || "n/a"}]:`, error);
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  const detail = error instanceof ProviderHttpError ? error.body : error instanceof Error ? error.message : String(error);
+  console.error(`❌ [AIService] ${provider} call failed [status=${status || "n/a"}${code ? `, code=${code}` : ""}]: ${detail}`);
 
   if (status === 401 || status === 403) {
     console.error(`❌ [AIService] ${provider} rejected the API key. Check the server's API key.`);

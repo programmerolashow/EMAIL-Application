@@ -5,11 +5,34 @@ import { ArrowLeft, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/trpc/react";
 import { PLAN_LIST, formatNaira, type PlanDefinition } from "@/lib/plans";
+import { formatPlanPrice } from "@/lib/currency";
+import { countryName, type CountryCode } from "@/lib/countries";
+import { CountrySelect } from "@/components/CountrySelect";
+
+interface PriceContext {
+  currency: string;
+  rate: number | null;
+}
 
 /** Plans & billing. Layout follows the Qorelly plans page: two-column cards, serif names. */
 export default function PlansPage() {
   const planQuery = api.account.getPlan.useQuery();
   const current = planQuery.data;
+  const utils = api.useUtils();
+  const billingQuery = api.account.getBillingProfile.useQuery();
+  const billing = billingQuery.data;
+  const setCountry = api.account.setCountry.useMutation();
+  const priceContext: PriceContext = { currency: billing?.currency ?? "NGN", rate: billing?.rate ?? null };
+  const converted = priceContext.currency !== "NGN" && priceContext.rate !== null;
+
+  const changeCountry = async (country: CountryCode) => {
+    try {
+      await setCountry.mutateAsync({ country });
+      await utils.account.getBillingProfile.invalidate();
+    } catch {
+      toast.error("We couldn't update your country. Please try again.");
+    }
+  };
 
   return (
     <div className="h-full w-full overflow-y-auto bg-slate-50">
@@ -37,7 +60,21 @@ export default function PlansPage() {
           )}
         </header>
 
-        {planQuery.isLoading ? (
+        {billing?.country && (
+          <div className="mb-6 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <label htmlFor="billing-country">Prices for</label>
+            <CountrySelect
+              id="billing-country"
+              value={billing.country as CountryCode}
+              onChange={(c) => void changeCountry(c)}
+              disabled={setCountry.isPending}
+              className="h-9 rounded-full border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+            />
+            {setCountry.isPending && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+          </div>
+        )}
+
+        {planQuery.isLoading || billingQuery.isLoading ? (
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading your plan…
@@ -45,21 +82,34 @@ export default function PlansPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
             {PLAN_LIST.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} isCurrent={current?.planId === plan.id} />
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                isCurrent={current?.planId === plan.id}
+                price={priceContext}
+              />
             ))}
           </div>
         )}
 
         <p className="mt-6 text-xs text-slate-500">
-          Prices are per month in Naira. Online payment isn&apos;t available yet; upgrades are applied
-          by our team. Every plan includes the AI Copilot with 5 runs per feature each week.
+          {converted && billing
+            ? `Prices are per month, converted from Naira to ${billing.currency} at today's exchange rate${
+                billing.ratesUpdatedAt ? ` (updated ${new Date(billing.ratesUpdatedAt).toLocaleDateString()})` : ""
+              }, so they can change slightly as rates move. `
+            : billing && billing.currency !== "NGN"
+              ? `We couldn't load today's exchange rate for ${countryName(billing.country ?? "")}, so prices are shown in Naira. `
+              : "Prices are per month in Naira. "}
+          Online payment isn&apos;t available yet; upgrades are applied by our team. Every plan includes the AI
+          Copilot.
         </p>
       </div>
     </div>
   );
 }
 
-function PlanCard({ plan, isCurrent }: { plan: PlanDefinition; isCurrent: boolean }) {
+function PlanCard({ plan, isCurrent, price }: { plan: PlanDefinition; isCurrent: boolean; price: PriceContext }) {
+  const showNairaToo = price.currency !== "NGN" && price.rate !== null;
   const popular = Boolean(plan.popular);
   return (
     <div
@@ -81,8 +131,11 @@ function PlanCard({ plan, isCurrent }: { plan: PlanDefinition; isCurrent: boolea
           "Free"
         ) : (
           <>
-            {formatNaira(plan.priceNgn)}
+            {formatPlanPrice(plan.priceNgn, price.currency, price.rate)}
             <span className="ml-1 font-sans text-sm text-slate-500">/ mo</span>
+            {showNairaToo && (
+              <span className="mt-1 block font-sans text-xs text-slate-500">{formatNaira(plan.priceNgn)} / mo</span>
+            )}
           </>
         )}
       </p>

@@ -38,7 +38,7 @@ export const env = createEnv({
     // Needs an API key from https://aistudio.google.com
     // (Google OAuth client id/secret cannot be used for this).
     GEMINI_API_KEY: z.string().optional(),
-    GEMINI_MODEL: z.string().default("gemini-3.5-flash,gemini-flash-latest"),
+    GEMINI_MODEL: z.string().default("gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"),
 
     // Comma-separated emails with unlimited AI use (for testing). Leave unset in production.
     AI_UNLIMITED_EMAILS: z.string().optional(),

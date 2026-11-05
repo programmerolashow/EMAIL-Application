@@ -2,6 +2,7 @@ import React from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { syncSupabaseUserToDatabase } from "@/lib/supabase/user-sync";
+import { CountryPrompt } from "@/components/CountryPrompt";
 
 export default async function DashboardLayout({
   children,
@@ -22,6 +23,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-100 font-sans text-slate-900">
       {children}
+      <CountryPrompt />
     </div>
   );
 }

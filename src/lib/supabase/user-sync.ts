@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { createClient } from "@/lib/supabase/server";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { isCountryCode } from "@/lib/countries";
 
 /**
  * Idempotently synchronizes a Supabase Auth user record to the Prisma PostgreSQL User model.
@@ -39,7 +40,11 @@ export async function syncSupabaseUserToDatabase(user: SupabaseUser) {
 
   const time = user.created_at ? new Date(user.created_at) : new Date();
 
-  return db.user.upsert({
+  // Country chosen on the sign-up form. Only fills an empty value, so a later change the user
+  // makes in the app is never overwritten by the original sign-up choice.
+  const signupCountry = isCountryCode(meta.country) ? meta.country : null;
+
+  const dbUser = await db.user.upsert({
     where: { id: user.id },
     update: {
       email,
@@ -54,8 +59,14 @@ export async function syncSupabaseUserToDatabase(user: SupabaseUser) {
       lastname,
       time,
       imageURL,
+      country: signupCountry,
     },
   });
+
+  if (!dbUser.country && signupCountry) {
+    return db.user.update({ where: { id: user.id }, data: { country: signupCountry } });
+  }
+  return dbUser;
 }
 
 /**
