@@ -13,6 +13,7 @@ import { ThreadIntelligenceService } from "./modules/thread-intelligence";
 import { ReplyGenerator } from "./modules/reply-generator";
 import { DraftRewriter } from "./modules/draft-rewriter";
 import { ActionItemExtractor } from "./modules/action-item-extractor";
+import { EmailTranslator, type EmailTranslationResult } from "./modules/email-translator";
 import type {
   EmailSummaryResult,
   ThreadIntelligenceResult,
@@ -46,12 +47,19 @@ export interface AIGatewayOptions {
   timeoutMs?: number;
 }
 
+/** Bump when prompts change so saved results are regenerated once (free) with the new prompt. */
+const SAVED_RESULT_VERSION = "v2";
+
 export class AIService {
   /** OPENAI_MODEL from the environment (defaults to gpt-4o-mini in src/env.js). */
   private static get DEFAULT_MODEL() {
     return env.OPENAI_MODEL;
   }
   private static readonly DEFAULT_TIMEOUT_MS = 25000;
+  /** Speech-to-text model; OPENAI_TRANSCRIBE_MODEL overrides it. */
+  private static get TRANSCRIBE_MODEL() {
+    return env.OPENAI_TRANSCRIBE_MODEL;
+  }
 
   /**
    * Private helper to obtain initialized OpenAI client (or null if OPENAI_API_KEY is unset).
@@ -65,10 +73,45 @@ export class AIService {
 
   /**
    * Central Gateway Completion Engine.
-   * Handles client instantiation, timeouts (AbortController), request validation,
-   * error handling, logging, token efficiency, and fallback logic.
+   * Tries OpenAI first; if OpenAI is not configured or fails (outage, rate limit, billing,
+   * timeout), retries the same prompt on Google Gemini when GEMINI_API_KEY is set.
+   * Users only ever see plain-language messages; provider details go to the server log.
    */
   static async complete(options: AIGatewayOptions, fallbackText?: string): Promise<string> {
+    if (!options.systemPrompt || !options.userPrompt) {
+      throw new Error("[AIService] Both systemPrompt and userPrompt are required.");
+    }
+    void fallbackText; // Placeholder text is never shown as if it were an AI result.
+
+    const hasOpenAI = Boolean(env.OPENAI_API_KEY);
+    const hasGemini = Boolean(env.GEMINI_API_KEY);
+    if (!hasOpenAI && !hasGemini) {
+      console.error("❌ [AIService] No AI provider configured (set OPENAI_API_KEY and/or GEMINI_API_KEY).");
+      throw new UserFacingError(AI_MESSAGES.unavailable, "PRECONDITION_FAILED");
+    }
+
+    let openAIFailure: ProviderFailure | null = null;
+    if (hasOpenAI) {
+      try {
+        return await this.completeWithOpenAI(options);
+      } catch (error) {
+        openAIFailure = toProviderFailure("OpenAI", error);
+        if (!hasGemini) throw openAIFailure.userError;
+        console.warn(`↪️ [AIService] OpenAI failed (${openAIFailure.reason}); retrying on Gemini.`);
+      }
+    }
+
+    try {
+      return await this.completeWithGemini(options);
+    } catch (error) {
+      const geminiFailure = toProviderFailure("Gemini", error);
+      throw (openAIFailure ?? geminiFailure).userError;
+    }
+  }
+
+  private static async completeWithOpenAI(options: AIGatewayOptions): Promise<string> {
+    const openai = this.getOpenAIClient();
+    if (!openai) throw new Error("OPENAI_API_KEY is not set");
     const {
       model = this.DEFAULT_MODEL,
       systemPrompt,
@@ -78,23 +121,9 @@ export class AIService {
       timeoutMs = this.DEFAULT_TIMEOUT_MS,
     } = options;
 
-    if (!systemPrompt || !userPrompt) {
-      throw new Error("[AIService] Both systemPrompt and userPrompt are required.");
-    }
-
-    void fallbackText; // Placeholder text is never shown as if it were an AI result.
-    const openai = this.getOpenAIClient();
-    if (!openai) {
-      throw new UserFacingError(
-        "AI is not set up on the server: OPENAI_API_KEY is missing. Add it to the environment variables and redeploy.",
-        "PRECONDITION_FAILED"
-      );
-    }
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     const startTime = Date.now();
-
     try {
       const response = await openai.chat.completions.create(
         {
@@ -108,30 +137,85 @@ export class AIService {
         },
         { signal: controller.signal }
       );
-
-      const duration = Date.now() - startTime;
       const totalTokens = response.usage?.total_tokens !== undefined ? String(response.usage.total_tokens) : "unknown";
       console.log(
-        `⚡ [AIService] OpenAI Call Succeeded [model=${model}, duration=${duration}ms, tokens=${totalTokens}]`
+        `⚡ [AIService] OpenAI Call Succeeded [model=${model}, duration=${Date.now() - startTime}ms, tokens=${totalTokens}]`
       );
-
       const content = response.choices[0]?.message?.content?.trim();
-      if (!content) {
-        throw new UserFacingError("The AI returned an empty response. Try again.", "BAD_GATEWAY");
-      }
+      if (!content) throw new EmptyAIResponse();
       return content;
-    } catch (error: unknown) {
-      const duration = Date.now() - startTime;
-      if (error instanceof UserFacingError) throw error;
-      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
-        console.error(`❌ [AIService] OpenAI Call Timed Out after ${duration}ms.`);
-        throw new UserFacingError(
-          `The AI took longer than ${Math.round(timeoutMs / 1000)} seconds to respond. Try again.`,
-          "TIMEOUT"
-        );
+    } catch (error) {
+      if (controller.signal.aborted) throw new AITimeout(timeoutMs);
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Google Gemini via its REST API (no extra SDK). Requires GEMINI_API_KEY from Google AI Studio.
+   * GEMINI_MODEL may list several models (comma-separated); the next one is tried when a model
+   * is overloaded (503) or rate-limited (429).
+   */
+  private static async completeWithGemini(options: AIGatewayOptions): Promise<string> {
+    const models = env.GEMINI_MODEL.split(",").map((m) => m.trim()).filter(Boolean);
+    let lastError: unknown = new Error("GEMINI_MODEL is empty");
+    for (const model of models) {
+      try {
+        return await this.completeWithGeminiModel(model, options);
+      } catch (error) {
+        lastError = error;
+        const retryable = error instanceof ProviderHttpError && (error.status === 503 || error.status === 429);
+        if (!retryable) throw error;
+        console.warn(`↪️ [AIService] Gemini ${model} unavailable (${error.status}); trying next model.`);
       }
-      console.error(`❌ [AIService] OpenAI Call Failed after ${duration}ms:`, error);
-      throw describeOpenAIError(error);
+    }
+    throw lastError;
+  }
+
+  private static async completeWithGeminiModel(model: string, options: AIGatewayOptions): Promise<string> {
+    const apiKey = env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+    // No maxOutputTokens: Gemini's thinking models spend that budget on reasoning and can
+    // return an empty answer when it is tight.
+    const { systemPrompt, userPrompt, temperature = 0.3, timeoutMs = this.DEFAULT_TIMEOUT_MS } = options;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const startTime = Date.now();
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+            generationConfig: { temperature },
+          }),
+          signal: controller.signal,
+        }
+      );
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new ProviderHttpError(response.status, body.slice(0, 500));
+      }
+      const data = (await response.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+        usageMetadata?: { totalTokenCount?: number };
+      };
+      console.log(
+        `⚡ [AIService] Gemini Call Succeeded [model=${model}, duration=${Date.now() - startTime}ms, tokens=${data.usageMetadata?.totalTokenCount ?? "unknown"}]`
+      );
+      const content = data.candidates?.[0]?.content?.parts
+        ?.map((part) => part.text ?? "")
+        .join("")
+        .trim();
+      if (!content) throw new EmptyAIResponse();
+      return content;
+    } catch (error) {
+      if (controller.signal.aborted) throw new AITimeout(timeoutMs);
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -168,7 +252,7 @@ export class AIService {
         const validationResult = schema.safeParse(parsed);
         if (!validationResult.success) {
           console.error("⚠️ [AIService] Structured response failed Zod schema validation:", validationResult.error.format());
-          throw new UserFacingError("The AI returned an incomplete answer. Try again.", "BAD_GATEWAY");
+          throw new UserFacingError(AI_MESSAGES.badAnswer, "BAD_GATEWAY");
         }
         return validationResult.data;
       }
@@ -177,7 +261,7 @@ export class AIService {
     } catch (parseErr) {
       if (parseErr instanceof UserFacingError) throw parseErr;
       console.error("⚠️ [AIService] Failed to parse structured JSON response from OpenAI:", parseErr);
-      throw new UserFacingError("The AI returned an answer in an unreadable format. Try again.", "BAD_GATEWAY");
+      throw new UserFacingError(AI_MESSAGES.badAnswer, "BAD_GATEWAY");
     }
   }
 
@@ -196,7 +280,9 @@ export class AIService {
     regenerate: boolean,
     generate: () => Promise<T>
   ): Promise<T> {
-    const where = { userId_feature_targetKey: { userId, feature, targetKey } };
+    const where = {
+      userId_feature_targetKey: { userId, feature, targetKey: `${SAVED_RESULT_VERSION}:${targetKey}` },
+    };
     if (!regenerate) {
       const saved = await db.aiResult.findUnique({ where });
       if (saved && (!version || !saved.version || saved.version === version)) {
@@ -379,6 +465,83 @@ export class AIService {
   }
 
   /**
+   * Translates one received email into the chosen language. A saved translation (same message,
+   * same language) is returned without spending the weekly allowance; a new one counts 1 use.
+   */
+  static async translateEmail(
+    userId: string,
+    messageId: string,
+    targetLanguage: string,
+    accountId?: string
+  ): Promise<EmailTranslationResult> {
+    const where = {
+      userId_feature_targetKey: {
+        userId,
+        feature: "translate",
+        targetKey: `message:${accountId ?? "default"}:${messageId}:${targetLanguage}`,
+      },
+    };
+    const saved = await db.aiResult.findUnique({ where });
+    if (saved) return saved.result as unknown as EmailTranslationResult;
+
+    return UsageLimits.consumeAi(userId, "translate", async () => {
+      const message = await MailService.getMessage(userId, messageId, accountId);
+      const result = await EmailTranslator.translate(message, targetLanguage);
+      await db.aiResult.upsert({
+        where,
+        create: {
+          ...where.userId_feature_targetKey,
+          version: messageId,
+          result: result as unknown as Prisma.InputJsonValue,
+        },
+        update: { result: result as unknown as Prisma.InputJsonValue },
+      });
+      return result;
+    });
+  }
+
+  /**
+   * Speech-to-text for dictation. `audio` is the recorded clip; counts 1 use per clip.
+   */
+  static async transcribeAudio(userId: string, audio: Buffer, mimeType: string): Promise<string> {
+    const openai = this.getOpenAIClient();
+    if (!openai) {
+      console.error("❌ [AIService] Transcription needs OPENAI_API_KEY.");
+      throw new UserFacingError("Voice input isn't available right now. Please type your message instead.", "PRECONDITION_FAILED");
+    }
+    const extension = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
+    const file = new File([new Uint8Array(audio)], `dictation.${extension}`, { type: mimeType });
+
+    return UsageLimits.consumeAi(userId, "transcribe", async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60_000);
+      const startTime = Date.now();
+      try {
+        const response = await openai.audio.transcriptions.create(
+          { file, model: this.TRANSCRIBE_MODEL },
+          { signal: controller.signal }
+        );
+        console.log(
+          `⚡ [AIService] Transcription Succeeded [model=${this.TRANSCRIBE_MODEL}, bytes=${audio.length}, duration=${Date.now() - startTime}ms]`
+        );
+        const text = response.text?.trim();
+        if (!text) {
+          throw new UserFacingError("We couldn't hear any speech in that recording. Please try again.", "BAD_REQUEST");
+        }
+        return text;
+      } catch (error: unknown) {
+        if (error instanceof UserFacingError) throw error;
+        if (controller.signal.aborted) {
+          throw new UserFacingError("Transcription took too long. Please try a shorter recording.", "TIMEOUT");
+        }
+        throw toProviderFailure("OpenAI transcription", error).userError;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
+  }
+
+  /**
    * Subtask 7.5: Action-item extraction from an email or thread.
    */
   static async extractActionItems(
@@ -399,22 +562,74 @@ export class AIService {
   }
 }
 
-/** Turns an OpenAI SDK error into a user-facing message that includes OpenAI's own text. */
-function describeOpenAIError(error: unknown): UserFacingError {
-  const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
-  const raw = error instanceof Error ? error.message : String(error);
-  const detail = `(OpenAI: ${raw})`;
-  if (status === 401) {
-    return new UserFacingError(`OpenAI rejected the server's API key. Check OPENAI_API_KEY. ${detail}`, "PRECONDITION_FAILED");
+/** Messages shown to users. Technical details are logged on the server, never shown. */
+const AI_MESSAGES = {
+  unavailable: "AI features aren't available right now. Please try again later.",
+  busy: "The AI assistant is very busy right now. Please wait a few minutes and try again.",
+  timeout: "The AI assistant took too long to respond. Please try again.",
+  badAnswer: "The AI assistant couldn't produce a proper answer this time. Please try again.",
+  failed: "The AI assistant couldn't complete this request. Please try again in a moment.",
+} as const;
+
+class EmptyAIResponse extends Error {
+  constructor() {
+    super("Empty AI response");
   }
-  if (status === 429) {
-    return new UserFacingError(`OpenAI's rate limit or billing quota was reached. Try again later. ${detail}`, "TOO_MANY_REQUESTS");
+}
+
+class AITimeout extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Timed out after ${timeoutMs}ms`);
+  }
+}
+
+class ProviderHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string
+  ) {
+    super(`HTTP ${status}: ${body}`);
+  }
+}
+
+interface ProviderFailure {
+  reason: string;
+  userError: UserFacingError;
+}
+
+/** Logs the provider's real error and maps it to a plain-language message for the user. */
+function toProviderFailure(provider: string, error: unknown): ProviderFailure {
+  if (error instanceof UserFacingError) return { reason: error.message, userError: error };
+  if (error instanceof AITimeout) {
+    console.error(`❌ [AIService] ${provider} timed out after ${error.timeoutMs}ms.`);
+    return { reason: "timeout", userError: new UserFacingError(AI_MESSAGES.timeout, "TIMEOUT") };
+  }
+  if (error instanceof EmptyAIResponse) {
+    console.error(`❌ [AIService] ${provider} returned an empty response.`);
+    return { reason: "empty response", userError: new UserFacingError(AI_MESSAGES.badAnswer, "BAD_GATEWAY") };
+  }
+
+  const status =
+    error instanceof ProviderHttpError
+      ? error.status
+      : typeof error === "object" && error !== null && "status" in error
+        ? Number(error.status)
+        : 0;
+  console.error(`❌ [AIService] ${provider} call failed [status=${status || "n/a"}]:`, error);
+
+  if (status === 401 || status === 403) {
+    console.error(`❌ [AIService] ${provider} rejected the API key. Check the server's API key.`);
+    return { reason: `${status} auth`, userError: new UserFacingError(AI_MESSAGES.unavailable, "PRECONDITION_FAILED") };
   }
   if (status === 404) {
-    return new UserFacingError(`The configured OpenAI model isn't available. Check OPENAI_MODEL. ${detail}`, "PRECONDITION_FAILED");
+    console.error(`❌ [AIService] ${provider} model not found. Check the configured model name.`);
+    return { reason: "404 model", userError: new UserFacingError(AI_MESSAGES.unavailable, "PRECONDITION_FAILED") };
   }
-  if (status >= 500) {
-    return new UserFacingError(`OpenAI is having problems right now. Try again shortly. ${detail}`, "BAD_GATEWAY");
+  if (status === 429) {
+    return { reason: "429 rate limit / quota", userError: new UserFacingError(AI_MESSAGES.busy, "TOO_MANY_REQUESTS") };
   }
-  return new UserFacingError(`The AI request failed. ${detail}`, "BAD_GATEWAY");
+  return {
+    reason: status ? `HTTP ${status}` : "network error",
+    userError: new UserFacingError(AI_MESSAGES.failed, "BAD_GATEWAY"),
+  };
 }

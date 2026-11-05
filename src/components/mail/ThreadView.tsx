@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { TranslatableMessageBody } from "./TranslatableMessageBody";
 
 interface ThreadViewProps {
   thread: EmailThread | null;
@@ -331,9 +332,14 @@ export function ThreadView({
                             </button>
                           </div>
                         )}
-                        <div
-                          className="prose prose-slate max-w-none overflow-x-hidden break-words text-sm leading-relaxed text-slate-800 font-sans [&_*]:!max-w-full [&_table]:!w-full [&_table]:!table-fixed [&_td]:break-words [&_img]:!h-auto [&_pre]:whitespace-pre-wrap"
-                          dangerouslySetInnerHTML={{ __html: html }}
+                        <TranslatableMessageBody
+                          message={message}
+                          original={
+                            <div
+                              className="prose prose-slate max-w-none overflow-x-hidden break-words text-sm leading-relaxed text-slate-800 font-sans [&_*]:!max-w-full [&_table]:!w-full [&_table]:!table-fixed [&_td]:break-words [&_img]:!h-auto [&_pre]:whitespace-pre-wrap"
+                              dangerouslySetInnerHTML={{ __html: html }}
+                            />
+                          }
                         />
                       </>
                     );

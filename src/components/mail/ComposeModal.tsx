@@ -38,6 +38,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { MAX_DICTATION_SECONDS, useVoiceDictation } from "@/hooks/use-voice-dictation";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Types                                    */
@@ -83,40 +84,6 @@ interface Recipient {
   address: string;
 }
 
-interface SpeechRecognitionAlternative {
-  transcript: string;
-}
-
-type SpeechRecognitionResult = Record<number, SpeechRecognitionAlternative | undefined> & {
-  isFinal: boolean;
-};
-
-type SpeechRecognitionResults = Record<number, SpeechRecognitionResult | undefined> & {
-  length: number;
-};
-
-interface SpeechRecognitionEvent {
-  resultIndex: number;
-  results: SpeechRecognitionResults;
-}
-
-interface SpeechRecognitionErrorEvent {
-  error?: string;
-}
-
-interface WebSpeechRecognition {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onstart: (() => void) | null;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-type WebSpeechConstructor = new () => WebSpeechRecognition;
 
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
@@ -163,6 +130,10 @@ function parseRecipients(raw: string): { valid: Recipient[]; invalid: string[] }
   }
 
   return { valid, invalid };
+}
+
+function formatDictationTime(totalSeconds: number): string {
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 /** Splits the body into the part the user writes and the quoted original (reply) below it. */
@@ -302,9 +273,12 @@ export function ComposeModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Voice input
-  const [isListening, setIsListening] = useState(false);
-  const [interimTranscript, setInterimTranscript] = useState("");
-  const recognitionRef = useRef<WebSpeechRecognition | null>(null);
+  const dictation = useVoiceDictation((text) => {
+    setBody((prev) => appendToMain(prev, text));
+    setUndoBody(null);
+  });
+  const isListening = dictation.state === "recording";
+  const isTranscribing = dictation.state === "transcribing";
 
   // AI assist
   const [aiAction, setAiAction] = useState<"generate" | RewriteOption | null>(null);
@@ -344,22 +318,8 @@ export function ComposeModal({
 
   /* ------------------------------ Lifecycle ------------------------------ */
 
-  const stopListening = () => {
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    if (recognition) {
-      recognition.onresult = null;
-      recognition.onend = null;
-      recognition.onerror = null;
-      try {
-        recognition.stop();
-      } catch {
-        // already stopped
-      }
-    }
-    setIsListening(false);
-    setInterimTranscript("");
-  };
+  /** Closing or sending discards any recording in progress. */
+  const stopListening = () => dictation.cancel();
 
   // Reset the composer each time it opens (only on the closed -> open transition).
   const wasOpenRef = useRef(false);
@@ -406,20 +366,6 @@ export function ComposeModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialTo, initialSubject, initialBody, initialDraftId]);
 
-  // Stop the microphone if the component unmounts mid-dictation.
-  useEffect(() => {
-    return () => {
-      const recognition = recognitionRef.current;
-      if (recognition) {
-        recognition.onend = null;
-        try {
-          recognition.stop();
-        } catch {
-          // ignore
-        }
-      }
-    };
-  }, []);
 
   /* ---------------------------- Draft saving ----------------------------- */
 
@@ -747,70 +693,8 @@ export function ComposeModal({
   /* ----------------------------- Voice input ----------------------------- */
 
   const toggleVoiceInput = () => {
-    if (isListening) {
-      stopListening();
-      return;
-    }
-
-    const windowObj = window as unknown as Record<string, WebSpeechConstructor | undefined>;
-    const SpeechRecognition = windowObj.SpeechRecognition ?? windowObj.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast.error("Voice input isn't supported in this browser. Try Chrome, Edge, or Safari.");
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = typeof navigator !== "undefined" && navigator.language ? navigator.language : "en-US";
-
-      recognition.onstart = () => setIsListening(true);
-
-      recognition.onresult = (event) => {
-        let finalText = "";
-        let interimText = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const transcript = result?.[0]?.transcript ?? "";
-          if (result?.isFinal) {
-            finalText += transcript;
-          } else {
-            interimText += transcript;
-          }
-        }
-        // Only finalized phrases go into the body; interim text is shown as a live preview.
-        const cleanFinal = finalText.trim();
-        if (cleanFinal) {
-          setBody((prev) => appendToMain(prev, cleanFinal));
-          setUndoBody(null);
-        }
-        setInterimTranscript(interimText.trim());
-      };
-
-      recognition.onerror = (event) => {
-        const code = event.error ?? "unknown";
-        if (code === "no-speech" || code === "aborted") return;
-        if (code === "not-allowed" || code === "service-not-allowed") {
-          toast.error("Microphone access was blocked. Allow it in your browser settings to use voice input.");
-        } else {
-          toast.error(`Voice input stopped (${code}).`);
-        }
-      };
-
-      recognition.onend = () => {
-        recognitionRef.current = null;
-        setIsListening(false);
-        setInterimTranscript("");
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.error("[ComposeModal] Voice input failed to start:", err);
-      toast.error("Couldn't access the microphone.");
-      stopListening();
-    }
+    if (isListening) dictation.stop();
+    else if (!isTranscribing) void dictation.start();
   };
 
   /* ------------------------------ AI assist ------------------------------ */
@@ -1163,7 +1047,7 @@ export function ComposeModal({
                     size="sm"
                     variant="outline"
                     onClick={toggleVoiceInput}
-                    disabled={isSending || isAiBusy}
+                    disabled={isSending || isAiBusy || isTranscribing}
                     aria-pressed={isListening}
                     className={`h-7 gap-1.5 rounded-full px-2.5 text-xs font-medium ${
                       isListening
@@ -1176,6 +1060,11 @@ export function ComposeModal({
                       <>
                         <MicOff className="h-3.5 w-3.5" />
                         <span>Stop dictation</span>
+                      </>
+                    ) : isTranscribing ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Transcribing…</span>
                       </>
                     ) : (
                       <>
@@ -1297,7 +1186,8 @@ export function ComposeModal({
               {isListening && (
                 <p className="flex items-center gap-1.5 text-[0.6875rem] text-red-600" aria-live="polite">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-600" />
-                  {interimTranscript ? <span className="italic text-slate-500">{interimTranscript}</span> : "Listening…"}
+                  Recording {formatDictationTime(dictation.seconds)} / {formatDictationTime(MAX_DICTATION_SECONDS)}. Click
+                  &quot;Stop dictation&quot; to add the text.
                 </p>
               )}
             </div>

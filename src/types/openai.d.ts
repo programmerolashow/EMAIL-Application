@@ -38,5 +38,13 @@ declare module "openai" {
         ): Promise<ChatCompletion>;
       };
     };
+    audio: {
+      transcriptions: {
+        create(
+          params: { file: File; model: string; language?: string; prompt?: string },
+          options?: { signal?: AbortSignal }
+        ): Promise<{ text: string }>;
+      };
+    };
   }
 }
